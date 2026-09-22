@@ -42,15 +42,22 @@ class Chart{
     this.hist=(o.history||[]).map(x=>o.candles?{t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]}:{t:Date.parse(x[0]),v:+x[1]}).filter(x=>finite(x.t));
     this.now=Date.now();this.max=o.horizons.length?Math.max(...o.horizons.map(h=>Date.parse(h.t))):this.now+7*DAY;
     this.vol=o.candles?realizedVol(o.history):.01;
-    this.future=o.candles?futureCandles(o.spot,o.horizons,this.now,this.max,0,`${o.generatedAt||''}:${o.title}`,this.vol):[];
+    this.future=o.candles?futureCandles(o.spot,o.horizons,this.now,this.max,0,`${o.generatedAt||''}:${o.title}`,this.vol):[];this.prep();if(typeof window!=='undefined')(window.__charts=window.__charts||[]).push(this);
     const first=this.hist.length?this.hist[0].t:this.now-30*DAY;
     this.view={t0:o.small?first:Math.max(first,this.now-30*DAY),t1:Math.max(this.max+2*DAY,this.now+7*DAY)};
-    new ResizeObserver(()=>this.draw()).observe(this.wrap);
-    this.canvas.onpointermove=e=>this.move(e);this.canvas.onpointerleave=()=>{this.cross=null;this.tip.style.display='none';this.draw()};
+    new ResizeObserver(()=>this.requestDraw()).observe(this.wrap);
+    this.canvas.onpointermove=e=>this.move(e);this.canvas.onpointerleave=()=>{this.cross=null;this.tip.style.display='none';this.requestDraw()};
     this.canvas.onpointerdown=e=>{this.drag={x:e.clientX,t0:this.view.t0,t1:this.view.t1};this.canvas.setPointerCapture(e.pointerId)};
     this.canvas.onpointerup=()=>{this.drag=null};
-    this.canvas.onwheel=e=>{e.preventDefault();const r=this.canvas.getBoundingClientRect(),tc=this.tAt(e.clientX-r.left),f=e.deltaY>0?1.15:1/1.15,span=(this.view.t1-this.view.t0)*f;if(span<5*DAY||span>600*DAY)return;this.view={t0:tc-(tc-this.view.t0)*f,t1:tc+(this.view.t1-tc)*f};this.draw()};
+    this.canvas.onwheel=e=>{e.preventDefault();const r=this.canvas.getBoundingClientRect(),tc=this.tAt(e.clientX-r.left),f=e.deltaY>0?1.15:1/1.15,span=(this.view.t1-this.view.t0)*f;if(span<5*DAY||span>600*DAY)return;this.view={t0:tc-(tc-this.view.t0)*f,t1:tc+(this.view.t1-tc)*f};this.requestDraw()};
   }
+  prep(){// ★만기별 닫힌 구간·중앙·밀도·분위를 한 번만 계산 (픽셀마다 closeBins 를 부르던 것이 렉의 원인)
+    this.hs=this.o.horizons.map(h=>{const bs=closeBins(h.bins);return{t:Date.parse(h.t),kind:h.kind,c:bs.map(x=>(x.lo+x.hi)/2),d:bs.map(x=>(x.p||0)/(x.hi-x.lo)),q:[.1,.25,.5,.75,.9].map(k=>quantile(h.bins,k)),lo:bs[0].lo,hi:bs[bs.length-1].hi}}).sort((a,b)=>a.t-b.t);
+    const s=this.o.spot;this.spotH={t:this.now,kind:'',c:[s],d:[1/(s*.008)],q:[s,s,s,s,s],lo:s*.996,hi:s*1.004}}
+  dens(h,y){if(y<h.lo||y>h.hi)return 0;const c=h.c,d=h.d,n=c.length;if(y<=c[0])return d[0];if(y>=c[n-1])return d[n-1];let i=1;while(i<n&&c[i]<y)i++;const w=(y-c[i-1])/(c[i]-c[i-1]);return d[i-1]+(d[i]-d[i-1])*w}
+  seg(t){const hs=this.hs;let n=0;while(n<hs.length&&hs[n].t<t)n++;if(n>=hs.length)return null;const a=n?hs[n-1]:this.spotH,b=hs[n];return{a,b,w:Math.max(0,Math.min(1,(t-a.t)/Math.max(1,b.t-a.t)))}}
+  bandFast(t){const s=this.o.spot;if(t<=this.now||!this.hs.length)return[s,s,s,s,s];const g=this.seg(t);if(!g)return this.hs[this.hs.length-1].q;return g.a.q.map((v,i)=>(1-g.w)*v+g.w*g.b.q[i])}
+  requestDraw(){if(this.raf)return;this.raf=requestAnimationFrame(()=>{this.raf=0;this.draw()})}
   x(t){return this.L+(t-this.view.t0)/(this.view.t1-this.view.t0)*this.pw}
   tAt(x){return this.view.t0+(x-this.L)/this.pw*(this.view.t1-this.view.t0)}
   y(v){return this.T+(this.hi-v)/(this.hi-this.lo)*this.ph}
@@ -61,25 +68,27 @@ class Chart{
     this.future.forEach(c=>{if(c.t>=t0&&c.t<=t1)v.push(c.h,c.l)});
     if(this.o.spot!=null)v.push(this.o.spot);
     const a=v.filter(finite);if(!a.length){this.lo=0;this.hi=1;return}const lo=Math.min(...a),hi=Math.max(...a),p=(hi-lo)*.06||Math.abs(hi)*.01||1;this.lo=lo-p;this.hi=hi+p}
-  draw(){const r=this.wrap.getBoundingClientRect(),d=devicePixelRatio||1;if(!r.width)return;this.w=r.width;this.h=r.height;this.canvas.width=r.width*d;this.canvas.height=r.height*d;this.ctx.setTransform(d,0,0,d,0,0);
+  draw(){const r=this.wrap.getBoundingClientRect(),d=devicePixelRatio||1;if(!r.width)return;this.w=r.width;this.h=r.height;const cw=Math.round(r.width*d),ch=Math.round(r.height*d);if(this.canvas.width!==cw||this.canvas.height!==ch){this.canvas.width=cw;this.canvas.height=ch}this.ctx.setTransform(d,0,0,d,0,0);
     this.L=6;this.T=8;this.pw=this.w-6-62;this.ph=this.h-8-34;this.range();
-    const c=this.ctx;c.clearRect(0,0,this.w,this.h);c.save();c.beginPath();c.rect(this.L,this.T,this.pw,this.ph);c.clip();
-    this.gridLines();this.density();this.band();this.historyDraw();this.futureDraw();this.marks();c.restore();this.axes();this.crosshair();this.legendText()}
-  gridLines(){const c=this.ctx;c.strokeStyle=C.grid;c.lineWidth=1;for(let i=0;i<=5;i++){const y=Math.round(this.T+this.ph*i/5)+.5;c.beginPath();c.moveTo(this.L,y);c.lineTo(this.L+this.pw,y);c.stroke()}
+    const key=[this.view.t0,this.view.t1,this.lo,this.hi,cw,ch].join();
+    if(key!==this.layerKey){// ★정적 층(격자·밀도·밴드)은 뷰가 바뀔 때만 다시 그린다 — 마우스 이동은 캔들·십자선만
+      const o=this.layer||(this.layer=document.createElement('canvas'));if(o.width!==cw||o.height!==ch){o.width=cw;o.height=ch}const g=o.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,cw,ch);g.setTransform(d,0,0,d,0,0);g.save();g.beginPath();g.rect(this.L,this.T,this.pw,this.ph);g.clip();this.gridLines(g);this.density(g);this.band(g);g.restore();this.layerKey=key}
+    const c=this.ctx;c.clearRect(0,0,this.w,this.h);c.drawImage(this.layer,0,0,this.w,this.h);c.save();c.beginPath();c.rect(this.L,this.T,this.pw,this.ph);c.clip();this.historyDraw();this.futureDraw();this.marks();c.restore();this.axes();this.crosshair();this.legendText()}
+  gridLines(c){c.strokeStyle=C.grid;c.lineWidth=1;for(let i=0;i<=5;i++){const y=Math.round(this.T+this.ph*i/5)+.5;c.beginPath();c.moveTo(this.L,y);c.lineTo(this.L+this.pw,y);c.stroke()}
     for(const t of this.ticks()){const x=Math.round(this.x(t))+.5;c.beginPath();c.moveTo(x,this.T);c.lineTo(x,this.T+this.ph);c.stroke()}
     const xn=this.x(this.now);c.setLineDash([4,4]);c.strokeStyle=C.cross;c.beginPath();c.moveTo(xn,this.T);c.lineTo(xn,this.T+this.ph);c.stroke();c.setLineDash([])}
   ticks(){// 눈금 간격: 라벨이 80px 이상 떨어지게
     const ppd=this.pw/((this.view.t1-this.view.t0)/DAY),step=[1,2,3,7,14,30,61,91,182].find(s=>s*ppd>=80)||365,out=[];const d0=new Date(this.view.t0);d0.setUTCHours(0,0,0,0);let t=d0.getTime();while(t<this.view.t1){if(t>=this.view.t0)out.push(t);t+=step*DAY}return out}
-  density(){const hs=this.o.horizons;if(!hs.length)return;const x0=Math.max(this.L,Math.ceil(this.x(this.now))),x1=Math.min(this.L+this.pw,Math.floor(this.x(this.max)));const W=x1-x0;if(W<1)return;const H=Math.ceil(this.ph),o=document.createElement('canvas');o.width=W;o.height=H;const g=o.getContext('2d'),im=g.createImageData(W,H),cols=[];
-    for(let i=0;i<W;i++){const t=this.tAt(x0+i),n=hs.findIndex(h=>Date.parse(h.t)>=t);if(n<0)continue;const a=n?hs[n-1]:{bins:[{lo:this.o.spot*.996,hi:this.o.spot*1.004,p:1}]},b=hs[n],ta=n?Date.parse(a.t):this.now,w=Math.max(0,Math.min(1,(t-ta)/Math.max(1,Date.parse(b.t)-ta))),ds=[];for(let j=0;j<H;j++)ds.push((1-w)*smoothDensityAt(a.bins,this.vAt(this.T+j))+w*smoothDensityAt(b.bins,this.vAt(this.T+j)));cols.push({ds,fade:(a.kind==='touch-approx'||b.kind==='touch-approx')?.6:1,i})}
-    // ★절대 비교: 전체(보이는 미래 전부)의 최대 밀도를 기준으로 알파를 매긴다 — 집중된 근일은 진하고, 퍼진 먼 만기는 연하게
-    const gmax=Math.max(1e-12,...cols.map(c=>Math.max(0,...c.ds)));cols.forEach(({ds,fade,i})=>ds.forEach((v,j)=>{if(v>0){const q=.85*Math.pow(v/gmax,.5)*fade;im.data.set([245,165,36,Math.round(q*255)],(j*W+i)*4)}}));
-    g.putImageData(im,0,0);this.ctx.drawImage(o,x0,this.T)}
-  band(){if(this.o.small||!this.o.horizons.length)return;const c=this.ctx,x0=Math.max(this.L,this.x(this.now)),x1=Math.min(this.L+this.pw,this.x(this.max));if(x1-x0<2)return;const n=Math.ceil(x1-x0),q=i=>bandAt(this.o.horizons,this.o.spot,this.now,this.tAt(x0+i));
-    const fill=(a,b,col)=>{c.beginPath();for(let i=0;i<=n;i++){const v=q(i);i?c.lineTo(x0+i,this.y(v[a])):c.moveTo(x0,this.y(v[a]))}for(let i=n;i>=0;i--)c.lineTo(x0+i,this.y(q(i)[b]));c.closePath();c.fillStyle=col;c.fill()};
-    fill('q90','q10','rgba(245,165,36,.07)');fill('q75','q25','rgba(245,165,36,.11)');
-    for(const k of['q10','q90','q50']){c.beginPath();for(let i=0;i<=n;i++){const v=q(i);i?c.lineTo(x0+i,this.y(v[k])):c.moveTo(x0,this.y(v[k]))}c.strokeStyle=k==='q50'?'rgba(245,165,36,.35)':'rgba(245,165,36,.75)';c.setLineDash(k==='q50'?[2,3]:[3,3]);c.lineWidth=1;c.stroke()}c.setLineDash([]);
-    const e=bandAt(this.o.horizons,this.o.spot,this.now,this.max);c.fillStyle=C.muted;c.font='10px system-ui';c.textAlign='right';c.fillText(`상한 90% ${fmt(e.q90,this.o.decimals,this.o.unit)}`,x1-3,this.y(e.q90)-4);c.fillText(`하한 10% ${fmt(e.q10,this.o.decimals,this.o.unit)}`,x1-3,this.y(e.q10)+12)}
+  density(g){const hs=this.hs;if(!hs.length)return;const x0=Math.max(this.L,Math.ceil(this.x(this.now))),x1=Math.min(this.L+this.pw,Math.floor(this.x(this.max)));const W=x1-x0;if(W<1)return;const S=2,cw=Math.ceil(W/S),ch=Math.ceil(this.ph/S),o=document.createElement('canvas');o.width=cw;o.height=ch;const oc=o.getContext('2d'),im=oc.createImageData(cw,ch),cols=[];let gmax=1e-12;
+    for(let i=0;i<cw;i++){const sg=this.seg(this.tAt(x0+i*S));if(!sg)continue;const ds=new Float32Array(ch),fade=(sg.a.kind==='touch-approx'||sg.b.kind==='touch-approx')?.6:1;for(let j=0;j<ch;j++){const y=this.vAt(this.T+j*S),v=(1-sg.w)*this.dens(sg.a,y)+sg.w*this.dens(sg.b,y);ds[j]=v;if(v>gmax)gmax=v}cols.push({i,ds,fade})}
+    // ★절대 비교: 전체 최대 밀도 기준 — 집중된 근일은 진하고, 퍼진 먼 만기는 연하게
+    const D=im.data;for(const{i,ds,fade}of cols)for(let j=0;j<ch;j++){const v=ds[j];if(v>0){const k=(j*cw+i)*4;D[k]=245;D[k+1]=165;D[k+2]=36;D[k+3]=Math.round(.85*Math.sqrt(v/gmax)*fade*255)}}
+    oc.putImageData(im,0,0);g.imageSmoothingEnabled=true;g.drawImage(o,0,0,cw,ch,x0,this.T,cw*S,ch*S)}
+  band(g){if(this.o.small||!this.hs.length)return;const x0=Math.max(this.L,this.x(this.now)),x1=Math.min(this.L+this.pw,this.x(this.max));if(x1-x0<2)return;const S=2,n=Math.ceil((x1-x0)/S),Q=[];for(let i=0;i<=n;i++)Q.push(this.bandFast(this.tAt(x0+i*S)));const X=i=>x0+i*S;
+    const fill=(a,b,col)=>{g.beginPath();Q.forEach((q,i)=>i?g.lineTo(X(i),this.y(q[a])):g.moveTo(X(0),this.y(q[a])));for(let i=n;i>=0;i--)g.lineTo(X(i),this.y(Q[i][b]));g.closePath();g.fillStyle=col;g.fill()};
+    fill(4,0,'rgba(245,165,36,.07)');fill(3,1,'rgba(245,165,36,.11)');
+    for(const[k,col,dash]of[[0,'rgba(245,165,36,.75)',[3,3]],[4,'rgba(245,165,36,.75)',[3,3]],[2,'rgba(245,165,36,.35)',[2,3]]]){g.beginPath();Q.forEach((q,i)=>i?g.lineTo(X(i),this.y(q[k])):g.moveTo(X(0),this.y(q[k])));g.strokeStyle=col;g.setLineDash(dash);g.lineWidth=1;g.stroke()}g.setLineDash([]);
+    const e=this.bandFast(this.max);g.fillStyle=C.muted;g.font='10px system-ui';g.textAlign='right';g.fillText(`상한 90% ${fmt(e[4],this.o.decimals,this.o.unit)}`,x1-3,this.y(e[4])-4);g.fillText(`하한 10% ${fmt(e[0],this.o.decimals,this.o.unit)}`,x1-3,this.y(e[0])+12)}
   bodyW(){const ppd=this.pw/((this.view.t1-this.view.t0)/DAY);return Math.max(1,Math.min(14,Math.floor(ppd*.6)))}
   candle(x,k){const c=this.ctx,bw=this.bodyW(),up=k.c>=k.o;c.strokeStyle=c.fillStyle=up?C.up:C.down;c.lineWidth=1;c.beginPath();c.moveTo(Math.round(x)+.5,this.y(k.h));c.lineTo(Math.round(x)+.5,this.y(k.l));c.stroke();const y1=this.y(Math.max(k.o,k.c)),y2=this.y(Math.min(k.o,k.c));c.fillRect(Math.round(x-bw/2),y1,bw,Math.max(1,y2-y1))}
   historyDraw(){const c=this.ctx,{t0,t1}=this.view;if(!this.hist.length)return;if(!this.o.candles){c.strokeStyle='#aab3c4';c.lineWidth=1.2;c.beginPath();let s=false;this.hist.forEach(h=>{if(h.t<t0-DAY||h.t>t1+DAY)return;s?c.lineTo(this.x(h.t),this.y(h.v)):c.moveTo(this.x(h.t),this.y(h.v));s=true});c.stroke();return}this.hist.forEach(h=>{if(h.t>=t0-DAY&&h.t<=t1+DAY)this.candle(this.x(h.t),h)})}
@@ -99,13 +108,13 @@ class Chart{
   nearestCandle(t){const all=this.o.candles?this.hist.concat(this.future):[];if(!all.length)return null;return all.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a)}
   legendText(){if(!this.o.candles){this.legend.textContent='';return}const k=this.cross?this.nearestCandle(this.tAt(this.cross.x)):this.hist[this.hist.length-1];if(!k){this.legend.textContent='';return}const fut=k.t>this.now,col=k.c>=k.o?C.up:C.down,d=this.o.decimals;this.legend.innerHTML=`<span class="lg-t">${this.o.title} · 1D${fut?' · <em>예상 경로</em>':''} · ${dateLabel(k.t)}</span> <span style="color:${col}">O ${fmtFull(k.o,d)} H ${fmtFull(k.h,d)} L ${fmtFull(k.l,d)} C ${fmtFull(k.c,d)}</span>`}
   move(e){const r=this.canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
-    if(this.drag&&e.buttons){const dt=(this.drag.x-e.clientX)/this.pw*(this.drag.t1-this.drag.t0);this.view={t0:this.drag.t0+dt,t1:this.drag.t1+dt};this.cross={x,y};this.draw();return}
-    if(x<this.L||x>this.L+this.pw||y<this.T||y>this.T+this.ph){this.cross=null;this.tip.style.display='none';this.draw();return}
+    if(this.drag&&e.buttons){const dt=(this.drag.x-e.clientX)/this.pw*(this.drag.t1-this.drag.t0);this.view={t0:this.drag.t0+dt,t1:this.drag.t1+dt};this.cross={x,y};this.requestDraw();return}
+    if(x<this.L||x>this.L+this.pw||y<this.T||y>this.T+this.ph){this.cross=null;this.tip.style.display='none';this.requestDraw();return}
     this.cross={x,y};const t=this.tAt(x),v=this.vAt(y);let html='';
     if(t>this.now&&this.o.horizons.length){const h=this.o.horizons.reduce((a,b)=>Math.abs(Date.parse(b.t)-t)<Math.abs(Date.parse(a.t)-t)?b:a),b=closeBins(h.bins).find(z=>v>=z.lo&&v<=z.hi),d=this.o.decimals,u=this.o.unit;html=`<b>${h.label} 만기</b> · ${h.source}${h.kind==='touch-approx'?' · 도달근사':''}<br>${b?`${fmt(b.lo,d,u)}–${fmt(b.hi,d,u)} 구간: ${(b.p*100).toFixed(1)}%`:'구간 밖'}<br>P(만기 &lt; ${fmt(v,d,u)}) ${(cdfAt(h.bins,v)*100).toFixed(1)}%`}
     else if(!this.o.candles&&this.hist.length){const k=this.hist.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a);html=`${dateLabel(k.t)} · ${fmtFull(k.v,this.o.decimals)}`}
     if(html){this.tip.innerHTML=html;this.tip.style.display='block';this.tip.style.left=Math.min(this.w-230,x+12)+'px';this.tip.style.top=Math.min(this.h-70,y+10)+'px'}else this.tip.style.display='none';
-    this.draw()}
+    this.requestDraw()}
 }
 
 // ---------- 데이터 ----------
