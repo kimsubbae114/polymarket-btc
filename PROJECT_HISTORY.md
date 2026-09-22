@@ -1,5 +1,13 @@
 # 프로젝트 변경 이력
 
+## 2026-09-22 — Deribit BTC 옵션 위험중립 만기분포
+
+- 요청/목적: 기존 예측시장 bins에 Deribit BTC 옵션의 Breeden–Litzenberger 위험중립 만기분포를 추가해 월말·분기 만기를 보완.
+- 주요 변경: `collector/collect.py`에 공개 API 원본 수집, OTM mark IV 선형 보간, Black-76(`r=0`) 가격의 비균등 중앙차분, 닫힌 2% F bins 적분, `forward`·`atm_iv`·음수 질량 정보를 추가했다. `--no-deribit`, `spot_sources.deribit_index`, OI 기반 신뢰도 규칙과 Deribit 전용 검사를 넣었다. `README.md`에 방법·위험중립 해석 경고를 보탰다.
+- AI 판단: 선형 IV 스마일의 수치 곡률에서 음수 절단 질량이 5% 이상이면 저장은 유지하되 `unreliable`로 표시했다. 이는 검사 대상에서만 제외하며, 행사가 부족/OI 부족 규칙과 별개인 수치 품질 표시다.
+- 검증 사실: 2026-09-22에 `python collector/collect.py --offline --raw --check`, `python collector/collect.py --check`, `python -m py_compile collector/collect.py`가 통과했다. 생성 `latest.json`은 127,648 bytes, Deribit 원본은 436,224 bytes였다.
+- 미완료: 위험중립 분포를 실제 확률로 보정하지 않았으며, 변동성 스마일의 무차익 보정은 요청 방식(선형 보간·음수 절단)에 포함하지 않았다.
+
 ## 2026-09-22 — 예측시장 분포 차트 화면
 
 - 요청/목적: `data/latest.json`의 예측시장 확률질량을 이용해 모바일 대응 한국어 다크 테마 가격발견 화면을 구축.

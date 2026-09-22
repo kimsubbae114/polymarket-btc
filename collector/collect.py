@@ -1,7 +1,7 @@
 """예측시장 가격 구간을 작고 검증 가능한 확률질량함수로 수집한다."""
 # 데이터 규칙: PM 구간 Yes, 문턱은 P(종가>=행사가), touch는 별도 보존/반사 근사,
 # KX 구간/문턱은 strike_type으로 분류한다. 모든 bins는 정규화하고 원래 합은 raw_sum에 둔다.
-import argparse, csv, io, json, os, re, sys, time
+import argparse, csv, io, json, math, os, re, sys, time
 import datetime as 날짜시간
 import urllib.error, urllib.request
 
@@ -77,6 +77,94 @@ def 라벨(t):
 def horizon(자산,t,source,kind,event,title,n,raw,liq,bins,note='',volume=0):
     """★ 출처별 결과를 공통 horizon 계약으로 만들기 위해 있다."""
     return {'t':t,'label':라벨(t),'source':source,'kind':kind,'event':event,'title':title,'n_markets':n,'raw_sum':round(raw,8),'liquidity':round(liq,2),'volume':round(volume or 0,2),'low_liquidity':liq<500,'unreliable':False,'bins':bins,'note':note}
+def deribit_처리(결과, 건너뜀, raw=False):
+    """★ Deribit BTC 옵션의 Black-76 가격 곡률을 만기 위험중립 분포로 바꾸기 위해 있다."""
+    index=요청('https://www.deribit.com/api/v2/public/get_index_price?index_name=btc_usd')
+    summary=요청('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option')
+    if raw: 저장(os.path.join(원본,'deribit_btc.json'),{'index':index,'summary':summary})
+    if not isinstance(summary,dict) or not isinstance(summary.get('result'),list):
+        건너뜀.append({'event':'Deribit BTC options','reason':'Deribit 옵션 요약 조회 실패'}); return None
+    index_price=숫자((index or {}).get('result',{}).get('index_price'))
+    groups={}; now=날짜시간.datetime.now(날짜시간.timezone.utc)
+    for item in summary['result']:
+        m=re.match(r'^BTC-(\d{2}[A-Z]{3}\d{2})-(\d+(?:\.\d+)?)-(C|P)$',str(item.get('instrument_name','')))
+        if not m: continue
+        try: expiry=날짜시간.datetime.strptime(m.group(1),'%d%b%y').replace(tzinfo=날짜시간.timezone.utc,hour=8)
+        except ValueError: continue
+        if (expiry-now).total_seconds()<86400: continue
+        iv=숫자(item.get('mark_iv')); strike=숫자(m.group(2))
+        if iv is None or iv<=0 or strike is None: continue
+        groups.setdefault((m.group(1),expiry),[]).append((strike,m.group(3),iv,item))
+    if not groups:
+        건너뜀.append({'event':'Deribit BTC options','reason':'사용 가능한 만기 1일 이상 mark_iv 옵션 없음'}); return index_price
+    for (expiry_name,expiry), rows in groups.items():
+        forwards=sorted(숫자(row[3].get('underlying_price')) for row in rows if 숫자(row[3].get('underlying_price')) is not None)
+        forward=forwards[len(forwards)//2] if forwards else index_price
+        if forward is None or forward<=0:
+            건너뜀.append({'event':'BTC-'+expiry_name,'reason':'Deribit 선도·지수 가격 없음'}); continue
+        strikes={}
+        for strike,side,iv,item in rows: strikes.setdefault(strike,{})[side]=(iv,item)
+        smile=[]
+        for strike,sides in strikes.items():
+            chosen=sides.get('C') if strike>=forward else sides.get('P')
+            if chosen is None: chosen=sides.get('C') or sides.get('P')
+            if chosen: smile.append((math.log(strike/forward),chosen[0]))
+        smile.sort()
+        if len(smile)<3:
+            건너뜀.append({'event':'BTC-'+expiry_name,'reason':'IV 행사가가 3개 미만'}); continue
+        # 같은 행사가의 중복 레코드는 평균내어 선형 보간 입력을 단조로 만든다.
+        merged=[]
+        for x,iv in smile:
+            if merged and x==merged[-1][0]: merged[-1]=(x,(merged[-1][1]+iv)/2)
+            else: merged.append((x,iv))
+        smile=merged
+        def iv_at(x):
+            if x<=smile[0][0]: return smile[0][1]
+            if x>=smile[-1][0]: return smile[-1][1]
+            for (xa,ia),(xb,ib) in zip(smile,smile[1:]):
+                if xa<=x<=xb: return ia+(ib-ia)*(x-xa)/(xb-xa)
+        years=(expiry-now).total_seconds()/(365*86400)
+        xs=[math.log(.35)+(math.log(3.0)-math.log(.35))*i/400 for i in range(401)]
+        ks=[forward*math.exp(x) for x in xs]; calls=[]
+        for x,k in zip(xs,ks):
+            sigma=max(iv_at(x)/100,1e-8); root=sigma*math.sqrt(years); d1=(-x+.5*sigma*sigma*years)/root; d2=d1-root
+            norm=lambda z:(1+math.erf(z/math.sqrt(2)))/2
+            calls.append(forward*norm(d1)-k*norm(d2))
+        density=[0.0]*len(ks)
+        for i in range(1,len(ks)-1):
+            left=(calls[i]-calls[i-1])/(ks[i]-ks[i-1]); right=(calls[i+1]-calls[i])/(ks[i+1]-ks[i])
+            density[i]=2*(right-left)/(ks[i+1]-ks[i-1])
+        cells=[]; positive=negative=0.0
+        for i in range(len(ks)-1):
+            width=ks[i+1]-ks[i]; signed=(density[i]+density[i+1])*width/2
+            if signed<0: negative-=signed
+            clipped=max(0,density[i])+max(0,density[i+1]); mass=clipped*width/2; positive+=mass
+            cells.append(((ks[i]+ks[i+1])/2,mass))
+        if positive<=0:
+            건너뜀.append({'event':'BTC-'+expiry_name,'reason':'B-L 밀도 적분값 0'}); continue
+        clipped_pct=100*negative/(positive+negative) if positive+negative else 0
+        cumulative=0; qlo=qhi=None
+        for price,mass in cells:
+            cumulative+=mass/positive
+            if qlo is None and cumulative>=.005:qlo=price
+            if qhi is None and cumulative>=.995:qhi=price; break
+        step=.02*forward; lo=max(ks[0],math.floor(qlo/step)*step); hi=min(ks[-1],math.ceil(qhi/step)*step)
+        edges=[lo]
+        while edges[-1]<hi: edges.append(min(hi,edges[-1]+step))
+        weights=[0.0]*(len(edges)-1)
+        for price,mass in cells:
+            if lo<=price<=hi:
+                slot=min(len(weights)-1,int((price-lo)/step)); weights[slot]+=mass
+        bins=[{'lo':round(edges[i],2),'hi':round(edges[i+1],2),'p':weight} for i,weight in enumerate(weights)]
+        bins,_=정규화(bins)
+        oi=sum(숫자(row[3].get('open_interest'),0) or 0 for row in rows); volume=sum(숫자(row[3].get('volume'),0) or 0 for row in rows)
+        note='위험중립 밀도(Black-76·B-L), r=0, 음수 질량 %.1f%% 절단, F=%.2f'%(clipped_pct,forward)
+        if years>1: note+='; 잔존기간 1년 초과'
+        h=horizon('BTC',expiry.isoformat().replace('+00:00','Z'),'deribit','options-rnd','BTC-'+expiry_name,'Deribit BTC 옵션 '+expiry_name,len(smile),positive,oi,bins,note,volume)
+        h['forward']=round(forward,2); h['atm_iv']=round(iv_at(0),4); h['negative_mass_pct']=round(clipped_pct,6); h['unreliable']=len(smile)<8 or clipped_pct>=5
+        if clipped_pct>=5: h['note']+='; 음수 질량 절단이 5%% 이상이라 신뢰 낮음'
+        결과['BTC']['horizons'].append(h)
+    return index_price
 def touch_근사(자산,event,t,title,levels,spot):
     """★ 도달 확률을 반사원리의 거친 만기분포 근사로 분리하기 위해 있다."""
     if spot is None:return None
@@ -203,6 +291,16 @@ def 검사(data):
             for b in h['bins']:
                 if b['lo'] is not None and prev is not None and b['lo']<prev:errors.append('%s 경계 순서'%h['event'])
                 if b['hi'] is not None:prev=b['hi']
+            if h.get('source')=='deribit' and not h.get('unreliable'):
+                raw=h.get('raw_sum',0); forward=h.get('forward'); cut=h.get('negative_mass_pct',100)
+                if not .85<=raw<=1.15:errors.append('%s raw_sum'%h['event'])
+                if cut>=5:errors.append('%s 음수 절단 질량'%h['event'])
+                cumulative=0; median=None
+                for b in h['bins']:
+                    cumulative+=b['p']
+                    if cumulative>=.5:
+                        median=(b['lo']+b['hi'])/2; break
+                if forward is None or median is None or abs(median-forward)/forward>.08:errors.append('%s 중앙값/선도'%h['event'])
     btc=[h for h in data['panels']['BTC']['horizons'] if h['kind']=='bracket']
     if btc:
         h=btc[0];b=max(h['bins'],key=lambda x:x['p']);mid=((b['lo'] or b['hi'])+(b['hi'] or b['lo']))/2;spot=data['spot']['BTC'] or 86000
@@ -219,23 +317,25 @@ def 거래량_규칙(result):
             if h['kind']=='touch-approx':continue
             묶음.setdefault((h['source'],h['kind']),[]).append(h)
         for hs in 묶음.values():
-            gmax=max(h.get('volume',0) or 0 for h in hs)
+            deribit=hs[0].get('source')=='deribit'
+            gmax=max((h.get('liquidity',0) if deribit else h.get('volume',0)) or 0 for h in hs)
             for h in hs:
-                v=h.get('volume',0) or 0
-                if v<max(100,gmax*.02):
-                    h['unreliable']=True;h['note']=((h.get('note') or '')+' ' if h.get('note') else '')+'거래량 %g — 같은 묶음 최대(%g)의 2%% 미만이라 미거래 잡음으로 제외'%(v,gmax)
+                v=(h.get('liquidity',0) if deribit else h.get('volume',0)) or 0
+                if v<max(0 if deribit else 100,gmax*.02):
+                    h['unreliable']=True;h['note']=((h.get('note') or '')+' ' if h.get('note') else '')+('OI' if deribit else '거래량')+' %g — 같은 묶음 최대(%g)의 2%% 미만이라 미거래 잡음으로 제외'%(v,gmax)
 def main():
     """★ 옵션에 따라 수집 또는 기존 latest 검사만 실행하기 위해 있다."""
-    p=argparse.ArgumentParser();p.add_argument('--offline',action='store_true');p.add_argument('--raw',action='store_true');p.add_argument('--check',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--offline',action='store_true');p.add_argument('--raw',action='store_true');p.add_argument('--check',action='store_true');p.add_argument('--no-deribit',action='store_true');a=p.parse_args()
     if a.check and not a.offline:
         try:
             with open(os.path.join(데이터,'latest.json'),encoding='utf-8') as f:sys.exit(0 if 검사(json.load(f)) else 1)
         except OSError:print('CHECK FAIL: latest.json 없음',file=sys.stderr);sys.exit(1)
     skipped=[];spot,hist=현물과_이력(skipped);pm,kx=시장원본(a.offline,a.raw);result={x:{'unit':u,'decimals':d,'horizons':[],'touch':[],'decision':[]} for x,(u,d) in 패널정보.items()};result['_보정']=0
     pm_처리(pm,result,spot,skipped);kx_처리(kx,result,skipped)
+    deribit_index=None if a.no_deribit else deribit_처리(result,skipped,a.raw)
     거래량_규칙(result)
     for x in 패널정보:result[x]['horizons'].sort(key=lambda h:h['t'] or '')
-    data={'generated_at':날짜시간.datetime.utcnow().replace(microsecond=0).isoformat()+'Z','spot':spot,'history':hist,'panels':{x:result[x] for x in 패널정보},'skipped':skipped,'sources':{'polymarket':'https://gamma-api.polymarket.com','kalshi':'https://api.elections.kalshi.com/trade-api/v2','fred':'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU','frankfurter':'https://api.frankfurter.app','kraken':'https://api.kraken.com'},'_monotone_corrections':result['_보정']}
+    data={'generated_at':날짜시간.datetime.utcnow().replace(microsecond=0).isoformat()+'Z','spot':spot,'spot_sources':{'deribit_index':deribit_index},'history':hist,'panels':{x:result[x] for x in 패널정보},'skipped':skipped,'sources':{'polymarket':'https://gamma-api.polymarket.com','kalshi':'https://api.elections.kalshi.com/trade-api/v2','deribit':'https://www.deribit.com/api/v2/public','fred':'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU','frankfurter':'https://api.frankfurter.app','kraken':'https://api.kraken.com'},'_monotone_corrections':result['_보정']}
     저장(os.path.join(데이터,'latest.json'),data)
     if a.check:sys.exit(0 if 검사(data) else 1)
 if __name__=='__main__':main()

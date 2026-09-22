@@ -20,6 +20,12 @@ python -m py_compile collector/collect.py
 
 온라인 실행은 러너에서만 `python collector/collect.py`로 한다. `--raw`를 추가했을 때만 새 원본 덤프를 저장한다.
 
+## 옵션(Deribit) 위험중립 밀도
+
+수집기는 Deribit BTC 옵션을 만기별로 모아, 선도 `F` 기준 OTM 콜/풋의 mark IV를 로그머니니스에서 선형 보간한다. 그 IV로 Black-76 콜 가격(`r=0`, 할인 무시)을 계산하고 Breeden–Litzenberger 2차 차분으로 위험중립 밀도를 얻는다. 음수 곡률은 0으로 자른 뒤, 누적확률 0.5%~99.5%를 덮는 `F`의 2% 폭 닫힌 가격 bins에 적분·정규화한다.
+
+이는 **위험중립 확률**이지 실제 가격 확률이 아니다. 특히 헤지 수요 때문에 하락 꼬리가 실제 신념 분포보다 두껍게 나타날 수 있다. 옵션 horizon에는 `forward`(만기 선도 F)와 `atm_iv`(F에서 보간한 mark IV, %)가 추가되며, `raw_sum`은 정규화 전 밀도 적분값이다. `--no-deribit`으로 옵션 수집을 끌 수 있고, `--offline`에서도 Deribit 공개 API는 조회한다.
+
 
 ## 신뢰도 규칙 추가 (2026-09-22 저녁)
 - 각 horizon 에 `volume`(폴리마켓 이벤트 volume, 칼시는 market 별 `volume_fp` 합)을 기록하고, 칼시 `liquidity` 는 `open_interest_fp` 합으로 바꿨다(이전엔 event 에 없는 필드를 읽어 전부 0).

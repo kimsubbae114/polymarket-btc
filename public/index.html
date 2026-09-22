@@ -13,6 +13,7 @@ main{max-width:1500px;margin:auto;padding:24px 16px 40px}header{display:flex;jus
 .bar{height:7px;background:#1e2431;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--up);opacity:.85}.touchrow.down .bar i{background:var(--down)}
 .touch-divider{border-top:1px solid #4a5568;color:var(--orange);font-size:11px;margin:4px 0 3px;padding-top:3px;height:19px}
 .small-note{font-size:11px;margin:6px 0 0;line-height:1.5}
+.modes{display:flex;gap:4px;align-items:center}.modes button{background:#1b2230;border:1px solid #2a3140;color:var(--muted);font:12px system-ui;padding:3px 9px;border-radius:6px;cursor:pointer}.modes button.on{color:var(--text);border-color:var(--orange)}
 footer{font-size:12px;margin-top:22px;line-height:1.7}footer a{color:var(--orange)}
 .badges{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}.badge{border:1px solid #2a3446;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted);white-space:nowrap}.badge.warn{color:var(--orange);border-color:var(--orange)}
 .hint{font-size:11px;color:var(--muted);margin:4px 0 0}
@@ -21,5 +22,5 @@ footer{font-size:12px;margin-top:22px;line-height:1.7}footer a{color:var(--orang
 <header><div><h1>폴리마켓 비트코인 가격 발견</h1><p class="subtitle">예측시장 가격으로 그린 미래 가격 확률분포 — 휠로 확대, 드래그로 이동</p></div><div class="badges"><span id="data-age" class="badge">데이터 시각 확인 중…</span><span class="badge">Polymarket · Kalshi</span></div></header>
 <section id="btc-panel" class="panel"></section>
 <section id="small-grid" class="small-grid"></section>
-<footer><p>출처: Polymarket · Kalshi · FRED · ECB(frankfurter) · Binance/Kraken · 10분마다 갱신</p><p>예측시장 가격은 참가자들의 베팅이 시사하는 확률이지 예보가 아니다. 미래 캔들은 각 만기의 중앙값을 닻으로 삼아 과거 변동성만큼 흔들어 그린 예시 경로이고, 흐린 선 10갈래는 같은 규칙의 다른 예시다. 날짜·시각은 UTC 기준.</p><p>유동성 낮은 구간은 잡음이 크다. * 표시는 저유동 시장. 거래가 거의 없는 시장은 아예 제외한다.</p><p>‘도달 근사’(월말·연말)는 도달 확률에 반사원리를 적용한 근사다.</p><p><a href="https://github.com/kimsubbae114/polymarket-btc">GitHub 저장소</a></p></footer>
+<footer><p>출처: Polymarket · Kalshi · FRED · ECB(frankfurter) · Binance/Kraken · 10분마다 갱신</p><p>예측시장 가격은 참가자들의 베팅이 시사하는 확률이지 예보가 아니다. 미래 캔들은 각 만기의 중앙값을 닻으로 삼아 과거 변동성만큼 흔들어 그린 예시 경로이고, 흐린 선 10갈래는 같은 규칙의 다른 예시다. 날짜·시각은 UTC 기준.</p><p>유동성 낮은 구간은 잡음이 크다. * 표시는 저유동 시장. 거래가 거의 없는 시장은 아예 제외한다.</p><p>‘도달 근사’(월말·연말)는 도달 확률에 반사원리를 적용한 근사다. 주황 음영 = 예측시장(폴리마켓·칼시), 파랑 음영 = Deribit 옵션에서 뽑은 위험중립 밀도(헤지 수요 탓에 하락 꼬리가 실제 믿음보다 두꺼울 수 있다). 옵션 만기가 있는 날짜 근처의 도달 근사는 겹쳐 보기에서 옵션으로 대체된다.</p><p><a href="https://github.com/kimsubbae114/polymarket-btc">GitHub 저장소</a></p></footer>
 </main><script src="app.js"></script></body></html>
