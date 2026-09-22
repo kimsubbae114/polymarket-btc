@@ -43,7 +43,8 @@ def 가격_pm(m, 건너뜀, 이벤트):
 def 가격_kx(m):
     """★ 0 유동성 Kalshi 호가에 지정된 완화 규칙을 적용하기 위해 있다."""
     bid,ask=숫자(m.get('yes_bid_dollars'),0),숫자(m.get('yes_ask_dollars'),0)
-    return (bid+ask)/2 if bid>0 and ask>0 else ask/2 if ask>0 else 숫자(m.get('last_price_dollars'),0)
+    last=숫자(m.get('last_price_dollars'),0) or 0
+    return (bid+ask)/2 if bid>0 and ask>0 else last if last>0 else 0  # 무호가(bid 0) 구간은 확률 0 — ask/2 는 미거래 호가를 확률로 증폭한다(GPT 지적)
 def 자산_pm(slug):
     """★ slug 접두만으로 PM 자산을 판별하기 위해 있다."""
     for p,a in [('bitcoin-','BTC'),('what-price-will-bitcoin-','BTC'),('will-bitcoin-','BTC'),('usdjpy-','USDJPY'),('will-usdjpy-','USDJPY'),('usdkrw-','USDKRW'),('will-usdkrw-','USDKRW'),('eurusd-','EURUSD'),('will-eurusd-','EURUSD'),('fed-decision-','FED')]:
