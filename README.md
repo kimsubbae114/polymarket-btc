@@ -19,3 +19,8 @@ python -m py_compile collector/collect.py
 ```
 
 온라인 실행은 러너에서만 `python collector/collect.py`로 한다. `--raw`를 추가했을 때만 새 원본 덤프를 저장한다.
+
+
+## 신뢰도 규칙 추가 (2026-09-22 저녁)
+- 각 horizon 에 `volume`(폴리마켓 이벤트 volume, 칼시는 market 별 `volume_fp` 합)을 기록하고, 칼시 `liquidity` 는 `open_interest_fp` 합으로 바꿨다(이전엔 event 에 없는 필드를 읽어 전부 0).
+- **거래량 규칙**: 같은 (자산, 출처, 종류) 묶음 안에서 거래량이 최대의 2% 미만이거나 100 미만이면 `unreliable=true` + note. 한 번도 거래되지 않은 먼 만기(예: 칼시 KXFED 2027-06 이후, 최빈 5.75~6.0%)의 기본 호가가 화면에 잡음으로 뜨던 문제를 막는다. 도달근사(touch-approx)는 원천 도달 시장이 활발해 이 규칙에서 제외.

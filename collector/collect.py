@@ -73,9 +73,9 @@ def 라벨(t):
     try:
         d=날짜시간.datetime.fromisoformat(str(t).replace('Z','+00:00')); return '%d/%d'%(d.month,d.day)
     except ValueError:return str(t)[:10]
-def horizon(자산,t,source,kind,event,title,n,raw,liq,bins,note=''):
+def horizon(자산,t,source,kind,event,title,n,raw,liq,bins,note='',volume=0):
     """★ 출처별 결과를 공통 horizon 계약으로 만들기 위해 있다."""
-    return {'t':t,'label':라벨(t),'source':source,'kind':kind,'event':event,'title':title,'n_markets':n,'raw_sum':round(raw,8),'liquidity':round(liq,2),'low_liquidity':liq<500,'unreliable':False,'bins':bins,'note':note}
+    return {'t':t,'label':라벨(t),'source':source,'kind':kind,'event':event,'title':title,'n_markets':n,'raw_sum':round(raw,8),'liquidity':round(liq,2),'volume':round(volume or 0,2),'low_liquidity':liq<500,'unreliable':False,'bins':bins,'note':note}
 def touch_근사(자산,event,t,title,levels,spot):
     """★ 도달 확률을 반사원리의 거친 만기분포 근사로 분리하기 위해 있다."""
     if spot is None:return None
@@ -125,9 +125,9 @@ def pm_처리(events,결과,spot,건너뜀):
         t=e.get('endDate') or (ms[0].get('endDate') if ms else None);liq=숫자(e.get('liquidity'),0)
         if bracket:
             bracket.sort(key=lambda x:float('-inf') if x['lo'] is None else x['lo']);bins,raw=정규화(bracket)
-            if bins:결과[asset]['horizons'].append(horizon(asset,t,'polymarket','bracket',slug,e.get('title',''),len(bracket),raw,liq,bins))
+            if bins:결과[asset]['horizons'].append(horizon(asset,t,'polymarket','bracket',slug,e.get('title',''),len(bracket),raw,liq,bins,volume=숫자(e.get('volume'),0)))
         elif len(threshold)>=2:
-            bins,n=문턱_구간(threshold);결과['_보정']+=n;결과[asset]['horizons'].append(horizon(asset,t,'polymarket','threshold',slug,e.get('title',''),len(threshold),1,liq,bins,'단조 보정 %d회'%n if n else ''))
+            bins,n=문턱_구간(threshold);결과['_보정']+=n;결과[asset]['horizons'].append(horizon(asset,t,'polymarket','threshold',slug,e.get('title',''),len(threshold),1,liq,bins,'단조 보정 %d회'%n if n else '',volume=숫자(e.get('volume'),0)))
 def kx_처리(groups,결과,건너뜀):
     """★ 필요한 Kalshi series만 자산별 분포로 바꾸기 위해 있다."""
     for series,events in groups.items():
@@ -140,6 +140,7 @@ def kx_처리(groups,결과,건너뜀):
                 items=[{'name':m.get('yes_sub_title') or m.get('title',''),'p':가격_kx(m)} for m in ms]
                 if items:결과['FED']['decision'].append({'t':t,'label':라벨(t),'source':'kalshi','items':items})
                 continue
+            kx_vol=sum((숫자(m.get('volume_fp'),0) or 0) for m in ms);kx_oi=sum((숫자(m.get('open_interest_fp'),0) or 0) for m in ms)
             bracket=[];threshold=[]
             for m in ms:
                 p=가격_kx(m);typ=m.get('strike_type');lo,hi=숫자(m.get('floor_strike')),숫자(m.get('cap_strike'))
@@ -151,9 +152,9 @@ def kx_처리(groups,결과,건너뜀):
                     if m.get('strike_type')=='less':bracket.append({'lo':None,'hi':숫자(m.get('cap_strike')),'p':가격_kx(m)})
                     if m.get('strike_type')=='greater':bracket.append({'lo':숫자(m.get('floor_strike')),'hi':None,'p':가격_kx(m)})
                 bracket=[b for b in bracket if b['lo'] is not None or b['hi'] is not None];bracket.sort(key=lambda x:float('-inf') if x['lo'] is None else x['lo']);bins,raw=정규화(bracket)
-                h=horizon(asset,t,'kalshi','bracket',ticker,e.get('title',''),len(bracket),raw,숫자(e.get('open_interest_fp'),0),bins);h['unreliable']=raw<.5;결과[asset]['horizons'].append(h)
+                h=horizon(asset,t,'kalshi','bracket',ticker,e.get('title',''),len(bracket),raw,kx_oi,bins,volume=kx_vol);h['unreliable']=raw<.5;결과[asset]['horizons'].append(h)
             elif len(threshold)>=2:
-                bins,n=문턱_구간(threshold);결과['_보정']+=n;note='촘촘한 0.002 문턱이라 분포 해석이 제한적' if series.startswith('KXUSDJPYAW') else '';결과[asset]['horizons'].append(horizon(asset,t,'kalshi','threshold',ticker,e.get('title',''),len(threshold),1,숫자(e.get('open_interest_fp'),0),bins,note))
+                bins,n=문턱_구간(threshold);결과['_보정']+=n;note='촘촘한 0.002 문턱이라 분포 해석이 제한적' if series.startswith('KXUSDJPYAW') else '';결과[asset]['horizons'].append(horizon(asset,t,'kalshi','threshold',ticker,e.get('title',''),len(threshold),1,kx_oi,bins,note,volume=kx_vol))
 
 def 시장원본(offline,raw):
     """★ 오프라인 덤프와 미국 러너 온라인 수집을 분리하기 위해 있다."""
@@ -209,6 +210,19 @@ def 검사(data):
     if size>300*1024:errors.append('파일 크기 %d bytes'%size)
     if errors:print('CHECK FAIL:','; '.join(errors),file=sys.stderr);return False
     print('CHECK OK');return True
+def 거래량_규칙(result):
+    """★ 한 번도(거의) 거래되지 않은 시장의 기본 호가를 분포로 오독하지 않기 위해 있다 — 같은 (자산, 출처, 종류) 묶음 최대 거래량의 2% 미만 또는 100 미만이면 unreliable."""
+    for x in 패널정보:
+        묶음={}
+        for h in result[x]['horizons']:
+            if h['kind']=='touch-approx':continue
+            묶음.setdefault((h['source'],h['kind']),[]).append(h)
+        for hs in 묶음.values():
+            gmax=max(h.get('volume',0) or 0 for h in hs)
+            for h in hs:
+                v=h.get('volume',0) or 0
+                if v<max(100,gmax*.02):
+                    h['unreliable']=True;h['note']=((h.get('note') or '')+' ' if h.get('note') else '')+'거래량 %g — 같은 묶음 최대(%g)의 2%% 미만이라 미거래 잡음으로 제외'%(v,gmax)
 def main():
     """★ 옵션에 따라 수집 또는 기존 latest 검사만 실행하기 위해 있다."""
     p=argparse.ArgumentParser();p.add_argument('--offline',action='store_true');p.add_argument('--raw',action='store_true');p.add_argument('--check',action='store_true');a=p.parse_args()
@@ -218,6 +232,7 @@ def main():
         except OSError:print('CHECK FAIL: latest.json 없음',file=sys.stderr);sys.exit(1)
     skipped=[];spot,hist=현물과_이력(skipped);pm,kx=시장원본(a.offline,a.raw);result={x:{'unit':u,'decimals':d,'horizons':[],'touch':[],'decision':[]} for x,(u,d) in 패널정보.items()};result['_보정']=0
     pm_처리(pm,result,spot,skipped);kx_처리(kx,result,skipped)
+    거래량_규칙(result)
     for x in 패널정보:result[x]['horizons'].sort(key=lambda h:h['t'] or '')
     data={'generated_at':날짜시간.datetime.utcnow().replace(microsecond=0).isoformat()+'Z','spot':spot,'history':hist,'panels':{x:result[x] for x in 패널정보},'skipped':skipped,'sources':{'polymarket':'https://gamma-api.polymarket.com','kalshi':'https://api.elections.kalshi.com/trade-api/v2','fred':'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU','frankfurter':'https://api.frankfurter.app','kraken':'https://api.kraken.com'},'_monotone_corrections':result['_보정']}
     저장(os.path.join(데이터,'latest.json'),data)
