@@ -1,0 +1,24 @@
+name: collect
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python collector/collect.py
+      - name: publish data branch (orphan, force)
+        run: |
+          cd data
+          git init -q
+          git checkout -q -b data
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add -A
+          git commit -qm "data $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
