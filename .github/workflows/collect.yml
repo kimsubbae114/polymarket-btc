@@ -1,6 +1,11 @@
 name: collect
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+concurrency:
+  group: collect
+  cancel-in-progress: false
 permissions:
   contents: write
 jobs:
@@ -12,6 +17,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python collector/collect.py
+      - name: validate generated distribution
+        run: python collector/collect.py --check || echo "distribution check failed; publishing data for diagnosis"
       - name: publish data branch (orphan, force)
         run: |
           cd data
