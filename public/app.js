@@ -46,7 +46,7 @@ class Chart{
     this.now=o.now||Date.now();this.vol=o.candles?realizedVol(o.history):.01;if(o.layers){o.mode=o.mode||'both';o.horizons=mergeLayers(o.layers.pm,o.layers.opt,o.mode)}this.build();if(typeof window!=='undefined')(window.__charts=window.__charts||[]).push(this);
     if(o.layers){const hd=el.querySelector('.panel-head'),mb=document.createElement('div');mb.className='modes';mb.innerHTML=[['both','예측시장+옵션'],['pm','예측시장'],['opt','옵션']].map(([m,l])=>`<button data-m="${m}" class="${m===o.mode?'on':''}">${l}</button>`).join('');hd.insertBefore(mb,hd.lastElementChild);mb.onclick=e=>{const b=e.target.closest('button');if(!b)return;this.setMode(b.dataset.m);mb.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.m===b.dataset.m))}}
     const first=this.hist.length?this.hist[0].t:this.now-30*DAY;
-    this.view={t0:o.small?first:Math.max(first,this.now-30*DAY),t1:Math.max(this.max+2*DAY,this.now+7*DAY)};
+    this.view={t0:o.small?first:Math.max(first,this.now-30*DAY),t1:Math.min(Math.max(this.max+2*DAY,this.now+7*DAY),this.now+130*DAY)};// 기본 화면은 약 4개월 — 더 먼 만기는 휠로 축소해서 본다
     new ResizeObserver(()=>this.requestDraw()).observe(this.wrap);
     this.canvas.onpointermove=e=>this.move(e);this.canvas.onpointerleave=()=>{this.cross=null;this.tip.style.display='none';this.requestDraw()};
     this.canvas.onpointerdown=e=>{this.drag={x:e.clientX,t0:this.view.t0,t1:this.view.t1};this.canvas.setPointerCapture(e.pointerId)};
