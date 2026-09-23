@@ -16,7 +16,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: restore forecast history from data branch
+        run: |
+          mkdir -p data
+          git fetch -q origin data:refs/remotes/origin/data 2>/dev/null && git archive origin/data history | tar -x -C data || echo "no history yet"
       - run: python collector/collect.py
+      - name: daily forecast snapshot (history/daily/YYYY-MM-DD.json)
+        run: python collector/snapshot.py
       - name: validate generated distribution
         run: python collector/collect.py --check || echo "distribution check failed; publishing data for diagnosis"
       - name: publish data branch (orphan, force)
