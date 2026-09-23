@@ -164,7 +164,7 @@ def deribit_처리(결과, 건너뜀, raw=False):
         h['forward']=round(forward,2); h['atm_iv']=round(iv_at(0),4); h['negative_mass_pct']=round(clipped_pct,6); h['unreliable']=len(smile)<8 or clipped_pct>=5
         if clipped_pct>=5: h['note']+='; 음수 질량 절단이 5%% 이상이라 신뢰 낮음'
         _m=max(bins,key=lambda b:b['p']); _mid=((_m['lo'] if _m['lo'] is not None else _m['hi'])+(_m['hi'] if _m['hi'] is not None else _m['lo']))/2
-        if forward and abs(_mid/forward-1)>.15: h['unreliable']=True; h['note']+='; 최빈 구간이 선도가격 ±15%% 밖 — 스마일 꼬리 수치 잡음'
+        if forward and abs(_mid/forward-1)>.15: h['unreliable']=True; h['note']+='; 최빈 구간이 선도가격 ±15% 밖 — 스마일 꼬리 수치 잡음'
         결과['BTC']['horizons'].append(h)
     return index_price
 def touch_근사(자산,event,t,title,levels,spot):
