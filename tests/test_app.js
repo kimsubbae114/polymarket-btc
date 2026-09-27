@@ -1,12 +1,30 @@
 const A=require('assert'),fs=require('fs'),vm=require('vm'),c={module:{exports:{}},console};
 vm.createContext(c);vm.runInContext(fs.readFileSync('public/app.js','utf8'),c);
-let {binSum,quantile,closeBins,densityAt,interpolateDensity,modeBin,selectHorizons,logTimeRatio,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,bandAt,futureCandles}=c.module.exports;
+let {binSum,quantile,closeBins,densityAt,interpolateDensity,modeBin,selectHorizons,logTimeRatio,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,bandAt}=c.module.exports;
 let b=[{lo:10,hi:20,p:.2},{lo:20,hi:30,p:.5},{lo:30,hi:40,p:.3}],n=Date.parse('2026-09-22T00:00:00Z'),D=864e5;
 A.equal(binSum({bins:b}),1);A(quantile(b,.1)<quantile(b,.9));A.deepEqual(closeBins([{lo:null,hi:10,p:.2},{lo:10,hi:20,p:.6},{lo:20,hi:null,p:.2}]).map(x=>[x.lo,x.hi]),[[0,10],[10,20],[20,30]]);A.equal(interpolateDensity(b,[{lo:10,hi:20,p:1}],0,15),densityAt(b,15));A.equal(modeBin(b).p,.5);
 let h=[{t:'2026-09-23',source:'kalshi',kind:'bracket',bins:b},{t:'2026-09-23T12:00:00Z',source:'polymarket',kind:'threshold',bins:b}];A.equal(selectHorizons(h,n,'2026-09-22','BTC')[0].source,'polymarket');A(Math.abs(logTimeRatio(n+D,n,n+100*D)-Math.log(2)/Math.log(101))<1e-9);A(chartRange([[n,80,90,70,85]],[{t:'2026-09-23',bins:b},{t:'2027-01-01',bins:[{lo:1000,hi:2000,p:1}]}],n).hi<100);
 A.deepEqual(columnAlphas([1,4,0]).map(x=>Math.round(x*100)),[51,95,0]);A.deepEqual(spacedLabels([0,20,60,100]),[true,false,true,true]);A.deepEqual(candleLabels([0,80,130]),[true,false,false]);A.deepEqual(selectTouchTables([{t:'2026-09-23',label:'a'},{t:'2027-01-01',label:'c'},{t:'2026-10-01',label:'b'}]).map(x=>x.label),['a','b','c']);
 const hs=[{t:'2026-09-23',bins:b},{t:'2026-10-01',bins:[{lo:20,hi:30,p:.2},{lo:30,hi:40,p:.8}]}],max=Date.parse(hs[1].t),band=bandAt(hs,15,n,max);A.deepEqual(bandAt(hs,15,n,n),{q10:15,q25:15,q50:15,q75:15,q90:15});A.equal(band.q10,quantile(hs[1].bins,.1));
-const fc=futureCandles(15,hs,n,max,20,'seed');A.equal(fc.length,Math.max(1,Math.ceil((max-n)/D)));/* 하루 1캔들 */fc.forEach((x,i)=>{if(i)A.equal(x.o,fc[i-1].c);A(x.h>=Math.max(x.o,x.c));A(x.l<=Math.min(x.o,x.c))});A(Math.abs(fc.at(-1).c-quantile(hs[1].bins,.5))<1e-9);/* 닻 = 중앙값 */A.deepEqual(futureCandles(15,hs,n,max,20,'seed'),fc);A.notDeepEqual(futureCandles(15,hs,n,max,20,'other'),fc);
 let d=JSON.parse(fs.readFileSync('data/latest.json','utf8')),p=selectHorizons(d.panels.BTC.horizons,Date.parse(d.generated_at),d.generated_at,'BTC'),r=chartRange([],p,Date.parse(d.generated_at));console.log('BTC range:',r.lo.toFixed(0),'~',r.hi.toFixed(0));p.forEach(x=>console.log(x.label,'|',logTimeRatio(Date.parse(x.t),Date.parse(d.generated_at),Date.parse(p.at(-1).t)).toFixed(3)));A(r.hi<d.spot.BTC*1.3)/* 옵션 만기 포함 뒤 절대값 대신 현물 대비 */;A(p.filter(x=>Date.parse(x.t)-Date.parse(d.generated_at)<=10*D).some(x=>{let q=logTimeRatio(Date.parse(x.t),Date.parse(d.generated_at),Date.parse(p.at(-1).t));return q>=.15&&q<=.45}));const last=p.at(-1),sig=Math.max(.004,(Math.log(quantile(last.bins,.9))-Math.log(quantile(last.bins,.1)))/2*.35);console.log('Example latest spot→1/1:',d.spot.BTC,'→',(modeBin(last.bins).lo+modeBin(last.bins).hi)/2,'sigma=',sig.toFixed(6),'N@1500px=',Math.floor(((1500-55)*.52)/6));console.log('All tests passed (26 assertions).');
 
 {const {mergeLayers}=require('../public/app.js');const pm=[{t:'2026-09-23T16:00:00Z',source:'polymarket',kind:'bracket',bins:[{lo:1,hi:2,p:1}]},{t:'2026-12-31T00:00:00Z',source:'polymarket',kind:'touch-approx',bins:[{lo:1,hi:2,p:1}]}],opt=[{t:'2026-12-25T08:00:00Z',source:'deribit',kind:'options-rnd',bins:[{lo:1,hi:2,p:1}]}];const m=mergeLayers(pm,opt,'both');A.deepEqual(m.map(x=>x.source+'-'+x.kind),['polymarket-bracket','deribit-options-rnd']);A.equal(mergeLayers(pm,opt,'pm').length,2);A.equal(mergeLayers(pm,opt,'opt').length,1);console.log('mergeLayers ok (3 assertions)')}
+
+{const X=require('../public/app.js'),{quantileGrid,gridDensity,gridCdf,srcNodes,unifiedAt,mkNoise,dayGrid,futurePath,PQ}=X,D=864e5,n=Date.parse('2026-09-22T00:00:00Z');let k=0;const ok=(c,m)=>{if(!c)throw new Error(m);k++};
+const b=[{lo:10,hi:20,p:.2},{lo:20,hi:30,p:.5},{lo:30,hi:40,p:.3}],q=quantileGrid(b);
+ok(q.every((v,i)=>!i||v>=q[i-1]),'grid monotone');ok(Math.abs(q[50]-26)<1e-9,'median 26');ok(Math.abs(quantileGrid(b.map(x=>({...x,p:x.p*2})))[50]-26)<1e-9,'normalized');
+let s=0;for(let y=0;y<50;y+=.01)s+=gridDensity(q,y)*.01;ok(Math.abs(s-1)<.03,'density integrates to 1: '+s);ok(Math.abs(gridCdf(q,26)-.5)<1e-6,'cdf');
+const mk=(now,sp,pm,opt)=>({now,spot:sp,sq:Float64Array.from(PQ,p=>sp*(1+.008*(p-.5))),src:[{k:'pm',ns:srcNodes(pm)},{k:'opt',ns:srcNodes(opt)}].filter(x=>x.ns.length)});
+const h1=[{t:'2026-09-25T00:00:00Z',kind:'bracket',bins:[{lo:90,hi:110,p:1}]}],h2=[{t:'2026-09-25T00:00:00Z',kind:'options-rnd',bins:[{lo:100,hi:120,p:1}]}];
+const st=mk(n,100,h1,h2),o=new Float64Array(101),t=new Float64Array(101),ws=[];unifiedAt(st,Date.parse(h1[0].t),o,t,ws);ok(Math.abs(o[50]-105)<1e-9&&ws[0]===1&&ws[1]===1,'linear pool median');
+const st2=mk(n,100,[{...h1[0],kind:'touch-approx'}],h2);unifiedAt(st2,Date.parse(h1[0].t),o,t);ok(o[50]>105,'touch weighted down');
+unifiedAt(st,n+30*D,o,t);ok(o[50]<=120&&o[50]>=100,'tail hold');
+const qa=(S)=>(tt,out)=>unifiedAt(S,tt,out,new Float64Array(101)),nz=mkNoise('BTC'),end=n+20*D;
+const g=dayGrid(qa(st),n,end),fc=futurePath(g,n,end,100,.02,nz);ok(fc.length===19,'one candle per day after today '+fc.length);fc.forEach((x,i)=>{if(i)ok(x.o===fc[i-1].c,'chain');ok(x.h>=Math.max(x.o,x.c)&&x.l<=Math.min(x.o,x.c),'wicks')});
+const qe=new Float64Array(101);unifiedAt(st,end,qe,t);ok(Math.abs(fc.at(-1).c-qe[50])<1e-9,'ends at median');
+// 끈 연속성: 지금이 1분 움직이면 종가도 조금만 움직인다(예전엔 시점마다 다른 난수라 뚝뚝 끊김)
+const st3=mk(n+60e3,100,h1,h2),fc3=futurePath(dayGrid(qa(st3),n+60e3,end),n+60e3,end,100,.02,mkNoise('BTC'));ok(fc3.length===fc.length&&fc3.every((x,i)=>Math.abs(x.c/fc[i].c-1)<.005),'continuous in now');
+console.log('v5 unified/path ok ('+k+' assertions)')}
+{const {poolGrid,quantileGrid,gridCdf}=require('../public/app.js');const a=quantileGrid([{lo:90,hi:100,p:1}]),b=quantileGrid([{lo:110,hi:120,p:1}]),o=new Float64Array(101);poolGrid([a,b],[1,1],o);
+// 선형 풀: 두 봉우리 사이(100~110)는 확률 0, 가운데 누적확률 50%
+if(Math.abs(gridCdf(o,105)-.5)>.011||Math.abs(gridCdf(o,100)-.5)>1e-9||Math.abs(gridCdf(o,95)-.25)>1e-9)throw new Error('pool cdf');poolGrid([a,b],[3,1],o);if(Math.abs(gridCdf(o,100)-.75)>1e-9)throw new Error('pool weights');console.log('linear pool ok (4 assertions)')}

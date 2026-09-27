@@ -9,6 +9,8 @@ import datetime, json, os, shutil, sys
 이력 = os.path.join(데이터, 'history')
 일별 = os.path.join(이력, 'daily')
 보관일 = 730
+촘촘 = os.path.join(이력, 'intraday')
+촘촘보관일 = 30
 
 
 def 닫힌구간(bins):
@@ -65,12 +67,46 @@ def 요약_갱신():
     print('summary: 날짜', len(days))
 
 
+def 가볍게(d):
+    """★재생용 가벼운 스냅샷: BTC 의 믿을 만한 만기(구간 확률)·도달표·현물만."""
+    p = d.get('panels', {}).get('BTC', {})
+    hs = [{**{k: h.get(k) for k in ('t', 'label', 'source', 'kind', 'low_liquidity', 'volume')},
+           'bins': [{'lo': b.get('lo'), 'hi': b.get('hi'), 'p': round(b.get('p') or 0, 5)} for b in h.get('bins') or []]}
+          for h in p.get('horizons', []) if not h.get('unreliable') and h.get('bins')]
+    return {'generated_at': d.get('generated_at'), 'spot': {'BTC': (d.get('spot') or {}).get('BTC')},
+            'panels': {'BTC': {'horizons': hs, 'touch': p.get('touch', [])}}}
+
+
+def 촘촘_저장(d):
+    """★수집할 때마다 한 장(최근 30일) → history/intraday.json 한 파일로 묶는다. 재생이 그 사이 변화를 차례로 지나가게."""
+    gen = d.get('generated_at') or ''
+    if len(gen) < 16: return
+    os.makedirs(촘촘, exist_ok=True)
+    with open(os.path.join(촘촘, gen[:16].replace(':', '') + '.json'), 'w', encoding='utf-8') as f:
+        json.dump(가볍게(d), f, ensure_ascii=False, separators=(',', ':'))
+    한계 = (datetime.datetime.utcnow() - datetime.timedelta(days=촘촘보관일)).strftime('%Y-%m-%dT%H%M')
+    snaps = []
+    for n in sorted(os.listdir(촘촘)):
+        if not n.endswith('.json'): continue
+        if n[:-5] < 한계:
+            os.remove(os.path.join(촘촘, n)); continue
+        try:
+            with open(os.path.join(촘촘, n), encoding='utf-8') as f: snaps.append(json.load(f))
+        except Exception as e:
+            print('intraday: 건너뜀', n, e)
+    with open(os.path.join(이력, 'intraday.json'), 'w', encoding='utf-8') as f:
+        json.dump({'schema': 1, 'snaps': snaps}, f, ensure_ascii=False, separators=(',', ':'))
+    print('intraday: 장수', len(snaps))
+
+
 def 오늘_스냅샷():
     src = os.path.join(데이터, 'latest.json')
     if not os.path.exists(src):
         print('snapshot: latest.json 없음'); return 1
     with open(src, encoding='utf-8') as f:
-        gen = json.load(f).get('generated_at', '')
+        latest = json.load(f)
+    gen = latest.get('generated_at', '')
+    촘촘_저장(latest)
     날 = (gen[:10] if len(gen) >= 10 else datetime.datetime.utcnow().strftime('%Y-%m-%d'))
     os.makedirs(일별, exist_ok=True)
     dst = os.path.join(일별, 날 + '.json')
