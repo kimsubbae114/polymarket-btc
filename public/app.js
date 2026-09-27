@@ -194,7 +194,7 @@ function scrubber(){// ★시점 슬라이더: 왼쪽 = 가장 오래된 스냅�
   const stop=()=>{S.playing=false;play.textContent='▶'};
   async function ensureStates(){if(S.statesLoaded)return true;const lastGen=S.latest.generated_at,from=new Date(Date.parse(lastGen)-30*DAY).toISOString();hint.textContent='이력 불러오는 중…';
     try{let snaps=[];try{const r=await fetch(HIST+'intraday.json?t='+Date.now());if(r.ok)snaps=((await r.json()).snaps||[])}catch(_){}
-      const covered=new Set(snaps.map(s=>(s.generated_at||'').slice(0,10))),days=(S.index||[]).filter(x=>x<lastGen.slice(0,10)&&x>=from.slice(0,10)&&!covered.has(x));snaps=snaps.concat(await Promise.all(days.map(loadSnap)));
+      snaps=snaps.filter(s=>(s.generated_at||'')<lastGen);const covered=new Set(snaps.map(s=>s.generated_at.slice(0,10))),days=(S.index||[]).filter(x=>x<=lastGen.slice(0,10)&&x>=from.slice(0,10)&&!covered.has(x));snaps=snaps.concat(await Promise.all(days.map(loadSnap)));
       snaps=snaps.filter(s=>s.generated_at&&s.generated_at<lastGen&&s.generated_at>=from&&s.panels&&s.panels.BTC&&finite((s.spot||{}).BTC)).sort((a,b)=>a.generated_at<b.generated_at?-1:1);
       const pick=[];for(const s of snaps){if(!pick.length||Date.parse(s.generated_at)-Date.parse(pick[pick.length-1].generated_at)>=20*60e3)pick.push(s)}// 20분 안쪽 중복은 하나만
       if(!pick.length){hint.textContent='이력 없음 — 수집이 쌓이면 슬라이더가 열립니다';range.disabled=true;return false}
