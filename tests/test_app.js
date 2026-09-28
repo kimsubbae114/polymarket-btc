@@ -28,3 +28,4 @@ console.log('v5 unified/path ok ('+k+' assertions)')}
 {const {poolGrid,quantileGrid,gridCdf}=require('../public/app.js');const a=quantileGrid([{lo:90,hi:100,p:1}]),b=quantileGrid([{lo:110,hi:120,p:1}]),o=new Float64Array(101);poolGrid([a,b],[1,1],o);
 // 선형 풀: 두 봉우리 사이(100~110)는 확률 0, 가운데 누적확률 50%
 if(Math.abs(gridCdf(o,105)-.5)>.011||Math.abs(gridCdf(o,100)-.5)>1e-9||Math.abs(gridCdf(o,95)-.25)>1e-9)throw new Error('pool cdf');poolGrid([a,b],[3,1],o);if(Math.abs(gridCdf(o,100)-.75)>1e-9)throw new Error('pool weights');console.log('linear pool ok (4 assertions)')}
+{const {mixNoise,mkNoise}=require('../public/app.js'),a=mkNoise('x'),b=mkNoise('y'),t=Date.parse('2026-10-15T00:00:00Z');const v0=mixNoise(a,b,0).at(t),v1=mixNoise(a,b,1e-4).at(t),vq=mixNoise(a,b,Math.PI/2).at(t);if(Math.abs(v0-a.at(t))>1e-12||Math.abs(v1-v0)>1e-3||Math.abs(vq-b.at(t))>1e-12)throw new Error('mixNoise');console.log('mixNoise ok (3 assertions)')}
