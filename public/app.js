@@ -28,7 +28,7 @@ function realizedVol(history){const c=(history||[]).map(x=>+x[4]).filter(v=>fini
 // ★v5 통합 분포: 만기마다 구간확률 → 분위수 101점(0%·1%…99%·100%, 끝점 = 닫힌 구간 끝) = 조각선형 누적분포. 한 출처 안에서는 만기 사이를 분위수로 선형 보간(모양이 흘러가듯 변함),
 //   출처끼리는 누적확률 가중 평균(선형 풀 — 의견이 갈리면 두 봉우리·꼬리를 그대로 보인다, GPT 검토 2026-09-28). 도달근사 만기는 가중치 0.35. 마지막 만기 뒤로는 가중치를 7일에 걸쳐 줄여 끊김 없이 넘긴다.
 //   ponytail: 예측시장:옵션 = 1:1 고정 가중. 유동성·신선도 기반 가중은 근거 자료가 쌓이면.
-const NQ=101,PQ=Array.from({length:NQ},(_,i)=>i/100),SCR=[0,1,2].map(()=>new Float64Array(NQ));let PY=new Float64Array(0),PF=new Float64Array(0);const E0=Math.floor(Date.parse('2026-01-01T00:00:00Z')/DAY),TOUCH_W=.35,TAIL_DAYS=7,PIN_DAYS=30,RHO=.9,MORPH_DAYS=8,DK=5;
+const NQ=101,PQ=Array.from({length:NQ},(_,i)=>i/100),SCR=[0,1,2].map(()=>new Float64Array(NQ));let PY=new Float64Array(0),PF=new Float64Array(0);const E0=Math.floor(Date.parse('2026-01-01T00:00:00Z')/DAY),TOUCH_W=.35,TAIL_DAYS=7,PIN_DAYS=30,RHO=.9,DK=5,KNOT=2*DAY,ND=900;
 function quantileGrid(bins){const bs=closeBins(bins).filter(x=>finite(x.lo)&&finite(x.hi)&&x.hi>=x.lo).sort((a,b)=>a.lo-b.lo),tot=bs.reduce((s,x)=>s+Math.max(0,+x.p||0),0),out=new Float64Array(NQ);if(!(tot>0)){out.fill(NaN);return out}const nz=bs.filter(x=>x.p>0);out[0]=nz[0].lo;let s=0,j=1;for(const x of bs){const p=Math.max(0,+x.p||0)/tot;while(j<NQ-1&&s+p>=PQ[j]-1e-12){out[j]=x.lo+(x.hi-x.lo)*(p?Math.max(0,PQ[j]-s)/p:0);j++}s+=p}for(;j<NQ-1;j++)out[j]=nz[nz.length-1].hi;out[NQ-1]=nz[nz.length-1].hi;for(let k=1;k<NQ;k++)if(out[k]<out[k-1])out[k]=out[k-1];return out}
 // 밀도 = 누적분포 기울기를 누적확률 ±5%(DK) 창으로 잰 것 — 두 시장의 구간 경계가 어긋나 생기는 줄무늬를 편다. 창끼리 선형 보간. 0%·100% 밖은 0
 function gridDensity(q,y,k=DK){const n=q.length;if(!(y>=q[0]&&y<=q[n-1]))return 0;const eps=Math.abs(q[n>>1])*1e-6+1e-12;let a=0,b=n-1;while(b-a>1){const m=(a+b)>>1;if(q[m]<=y)a=m;else b=m}const f=(y-q[a])/Math.max(eps,q[b]-q[a]),w=i=>{const lo=Math.max(0,i-k+1),hi=Math.min(n-1,i+k);return(PQ[hi]-PQ[lo])/Math.max(eps,q[hi]-q[lo])};return a+1<n-1?w(a)+(w(a+1)-w(a))*f:w(a)}
@@ -42,9 +42,9 @@ function poolGrid(gs,ws,out){const k=gs.length,W=ws.reduce((a,b)=>a+b,0),n=k*NQ,
 function unifiedAt(st,t,out,_,ws){if(t<=st.now||!st.src.length){out.set(st.sq);return out}const gs=[],w=[];st.src.forEach((s,j)=>{const g=SCR[j],x=srcAt(s.ns,t,st.now,st.sq,g);if(ws)ws[j]=x;if(x>1e-6){gs.push(g);w.push(x)}});if(!gs.length)out.set(st.sq);else if(gs.length===1)out.set(gs[0]);else poolGrid(gs,w,out);return out}
 // ★끈 같은 경로: 잡음은 달력 날짜에 묶인 고정 평균회귀 과정 W(날짜)(하루 ρ=0.9 — 하루 움직임 ≈ 실현 변동성, 중앙값에서 ±5% 안팎). 시점이 바뀌어도 같은 날엔 같은 잡음 → 경로가 끊기지 않고 출렁이며 변한다.
 //   종가 = 중앙값 × exp(h·tanh(변동성·다리/h)), h = 그날 10~90% 폭의 절반(로그). 흔들림 = W(날짜)−W(지금)·ρ^경과일(지금에서 0), 마지막 30일에 걸쳐 0 으로 줄여 마지막 종가 = 마지막 중앙값(끝 만기가 바뀌어도 앞쪽 경로는 그대로).
-function mkNoise(seed){const W=[0],g=(tag,k)=>normal(mulberry32(hashSeed(`${seed}:${tag}:${k}`)));return{at(t){const x=t/DAY-E0;if(x<=0)return 0;const k=Math.floor(x);while(W.length<=k+1)W.push(RHO*W[W.length-1]+Math.sqrt(1-RHO*RHO)*g('w',W.length));return W[k]+(W[k+1]-W[k])*(x-k)},z:g}}
-// ★파형도 시점에 따라 서서히 바뀌게: 독립 잡음 두 벌을 cos·sin 으로 섞는다(분산 그대로, 지금 시각에 연속). MORPH_DAYS 에 한 바퀴
-function mixNoise(a,b,th){const c=Math.cos(th),s=Math.sin(th);return{at:t=>c*a.at(t)+s*b.at(t),z:(g,k)=>c*a.z(g,k)+s*b.z(g,k)}}
+function mkNoise(seed){const K=new Map,arr=j=>{let a=K.get(j);if(!a){const r=mulberry32(hashSeed(`${seed}:k:${j}`));a=new Float64Array(ND);for(let i=0;i<ND;i++)a[i]=normal(r);K.set(j,a)}return a},W=new Float64Array(ND);let tau=NaN,cs=1,sn=0,j0=0;const set=t=>{if(t===tau)return;tau=t;const x=t/KNOT,j=Math.floor(x),u=x-j,a=arr(j),b=arr(j+1),r=Math.sqrt(1-RHO*RHO);j0=j;cs=Math.cos(u*Math.PI/2);sn=Math.sin(u*Math.PI/2);for(let i=1;i<ND;i++)W[i]=RHO*W[i-1]+r*(cs*a[i]+sn*b[i])};set(0);return{set,at(t){const x=t/DAY-E0;if(x<=0)return 0;const k=Math.min(ND-2,Math.floor(x));return W[k]+(W[k+1]-W[k])*(x-k)},z:(tag,k)=>{const g=j=>normal(mulberry32(hashSeed(`${seed}:${tag}:${k}:${j}`)));return cs*g(j0)+sn*g(j0+1)}}}
+// ★파형도 시점에 따라 날짜마다 따로 변하게: 날짜별 잡음 값이 시점 τ 에 따라 KNOT(2일) 간격 독립 난수 사이를 cos·sin 으로 옮겨 간다(분산 그대로, τ 에 연속).
+//   → 어떤 날은 높아지고 어떤 날은 낮아지는 랜덤워크식 변화. 하루 차이 시점끼리 날짜별 잡음 상관 ≈0.7
 function dayGrid(qAt,n0,n1){const out=[],q=new Float64Array(NQ);if(!(n1>n0))return out;for(let d=Math.floor(n0/DAY)+1;d*DAY<n1;d++){const tc=Math.min((d+1)*DAY,n1);qAt(tc,q);out.push({d,t:d*DAY,tc,M:q[50],h:Math.max(1e-6,(Math.log(q[90])-Math.log(q[10]))/2)})}return out}
 function futurePath(grid,n0,n1,sp,vol,noise,wicks=true){const out=[];if(!grid.length)return out;const w0=noise.at(n0),K=vol/Math.sqrt(1-RHO*RHO);let prev=sp;for(const g of grid){const B=(noise.at(g.tc)-w0*Math.pow(RHO,(g.tc-n0)/DAY))*Math.min(1,(n1-g.tc)/(PIN_DAYS*DAY)),c=g.M*Math.exp(g.h*Math.tanh(K*B/g.h));out.push(wicks?{t:g.t,o:prev,c,h:Math.max(prev,c)*(1+Math.abs(noise.z('h',g.d))*vol*.5),l:Math.min(prev,c)*(1-Math.abs(noise.z('l',g.d))*vol*.5)}:{t:g.t,c});prev=c}return out}
 const rank={'polymarket-bracket':0,'polymarket-threshold':1,'deribit-options-rnd':1.5,'kalshi-bracket':2,'kalshi-threshold':3,'touch-approx':4};
@@ -63,7 +63,7 @@ class Chart{
   constructor(el,o){this.o=o;el.innerHTML=`<div class="panel-head"><h2>${o.title}</h2><span class="spot">${fmt(o.spot,o.decimals,o.unit)}</span></div><div class="chart-wrap"><canvas></canvas><div class="legend"></div><div class="tip"></div></div>`;this.canvas=el.querySelector('canvas');this.wrap=el.querySelector('.chart-wrap');this.tip=el.querySelector('.tip');this.legend=el.querySelector('.legend');this.ctx=this.canvas.getContext('2d');
     this.hist=(o.history||[]).map(x=>o.candles?{t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]}:{t:Date.parse(x[0]),v:+x[1]}).filter(x=>finite(x.t));
     this.vol=o.candles?realizedVol(o.history):.01;this.now=o.now||Date.now();this.qa=new Float64Array(NQ);this.qb=new Float64Array(NQ);this.tmp=new Float64Array(NQ);
-    this.noise=[mkNoise(o.title),mkNoise(o.title+':b')];this.paths=Array.from({length:10},(_,i)=>[mkNoise(o.title+':'+i),mkNoise(o.title+':b'+i)]);this.yLock=null;
+    this.noise=mkNoise(o.title);this.paths=Array.from({length:10},(_,i)=>mkNoise(o.title+':'+i));this.yLock=null;
     if(o.layers){o.mode=o.mode||'both'}
     this.setStates(o.states||[{label:'현재',now:this.now,spot:o.spot,layers:o.layers||{pm:o.horizons,opt:[]},present:true}],true);
     const first=this.hist.length?this.hist[0].t:this.now-30*DAY;
@@ -106,7 +106,7 @@ class Chart{
     this.lo=this.auto.lo;this.hi=this.auto.hi}
   future(){// 지금 시점(섞인 것)의 예측 캔들 + 흐린 10갈래. pos·모드가 바뀔 때만 다시 계산
     const key=[this.pos,this.o.mode,this.states.length].join();if(key===this.futKey)return this.fut;const{n0,n1,sp}=this.mix(),g=this.o.candles?dayGrid((t,o)=>this.qAt(t,o),n0,n1):[];
-    const th=2*Math.PI*n0/(MORPH_DAYS*DAY),mx=p=>mixNoise(p[0],p[1],th);this.fut=futurePath(g,n0,n1,sp,this.vol,mx(this.noise));this.pathFut=this.paths.map(p=>futurePath(g,n0,n1,sp,this.vol,mx(p),false));this.futKey=key;return this.fut}
+    this.noise.set(n0);this.paths.forEach(p=>p.set(n0));this.fut=futurePath(g,n0,n1,sp,this.vol,this.noise);this.pathFut=this.paths.map(p=>futurePath(g,n0,n1,sp,this.vol,p,false));this.futKey=key;return this.fut}
   draw(){const r=this.wrap.getBoundingClientRect(),d=devicePixelRatio||1;if(!r.width)return;this.w=r.width;this.h=r.height;const cw=Math.round(r.width*d),ch=Math.round(r.height*d);if(this.canvas.width!==cw||this.canvas.height!==ch){this.canvas.width=cw;this.canvas.height=ch}this.ctx.setTransform(d,0,0,d,0,0);
     this.L=6;this.T=8;this.pw=this.w-6-62;this.ph=this.h-8-34;this.range();this.future();
     const key=[this.view.t0,this.view.t1,this.lo,this.hi,cw,ch,this.o.mode||'',this.pos].join();
@@ -226,4 +226,4 @@ async function boot(){try{const d=await(await fetch(DATA_URL+'?t='+Date.now())).
     renderMain();renderSmall(d,now)
   }catch(e){console.error(e);const el=document.querySelector('#btc-panel');if(el)el.innerHTML='<p class="muted">데이터를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</p>'}}
 if(typeof document!=='undefined')boot();
-if(typeof module!=='undefined')module.exports={mixNoise,poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};
+if(typeof module!=='undefined')module.exports={poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};
