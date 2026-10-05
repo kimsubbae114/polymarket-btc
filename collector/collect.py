@@ -8,6 +8,7 @@ import urllib.error, urllib.request
 루트=os.path.dirname(os.path.dirname(os.path.abspath(__file__))); 데이터=os.path.join(루트,'data'); 원본=os.path.join(데이터,'raw')
 사용자에이전트={'User-Agent':'Mozilla/5.0 (prediction-distribution collector)','Accept':'application/json'}
 패널정보={'BTC':('USD',0),'USDJPY':('JPY',2),'USDKRW':('KRW',0),'EURUSD':('USD',4),'FED':('%',2)}
+눈금={'FED':.25}  # ★이산 자산: 값이 이 눈금 위에만 있다. 문턱 차분 구간 (lo,hi] 의 뜻은 「hi」 → 구간을 눈금 중심으로 반 칸 옮겨 그린다(2026-10-06)
 
 def 숫자(값, 기본값=None):
     """★ API 문자열과 빈값을 안전한 숫자로 바꾸기 위해 있다."""
@@ -41,10 +42,14 @@ def 가격_pm(m, 건너뜀, 이벤트):
     try: return float(json.loads(m.get('outcomePrices','[]'))[0])
     except (ValueError,IndexError,TypeError): 건너뜀.append({'event':이벤트,'reason':'Polymarket Yes 가격 없음'}); return None
 def 가격_kx(m):
-    """★ 0 유동성 Kalshi 호가에 지정된 완화 규칙을 적용하기 위해 있다."""
-    bid,ask=숫자(m.get('yes_bid_dollars'),0),숫자(m.get('yes_ask_dollars'),0)
-    last=숫자(m.get('last_price_dollars'),0) or 0
-    return (bid+ask)/2 if bid>0 and ask>0 else last if last>0 else 0  # 무호가(bid 0) 구간은 확률 0 — ask/2 는 미거래 호가를 확률로 증폭한다(GPT 지적)
+    """★ Kalshi 호가를 확률로 읽되, 정보 없는 호가는 None(읽지 않음)으로 돌려주기 위해 있다.
+    양쪽 호가가 있고 스프레드 0.3 이하 → 중간값. 매수 없음·매도 0.05 이하 → 거의 0(매도/2). 매수 0.95 이상 → 거의 1.
+    그 밖(한쪽 호가뿐·스프레드 넓음)은 None — 옛 체결가(last)를 확률로 읽으면 먼 만기에 '6%↑ 48%' 같은 잡음이 생긴다(2026-10-06)."""
+    bid,ask=숫자(m.get('yes_bid_dollars'),0) or 0,숫자(m.get('yes_ask_dollars'),0) or 0
+    if bid>0 and ask>0 and ask-bid<=.3:return (bid+ask)/2
+    if bid<=0 and 0<ask<=.05:return ask/2
+    if bid>=.95:return (bid+max(ask,bid))/2
+    return None
 def 자산_pm(slug):
     """★ slug 접두만으로 PM 자산을 판별하기 위해 있다."""
     for p,a in [('bitcoin-','BTC'),('what-price-will-bitcoin-','BTC'),('will-bitcoin-','BTC'),('usdjpy-','USDJPY'),('will-usdjpy-','USDJPY'),('usdkrw-','USDKRW'),('will-usdkrw-','USDKRW'),('eurusd-','EURUSD'),('will-eurusd-','EURUSD'),('fed-decision-','FED')]:
@@ -228,24 +233,31 @@ def kx_처리(groups,결과,건너뜀):
             if e.get('status') not in ('open','active',None):continue
             ms=e.get('markets',[]);t=e.get('strike_date') or (ms[0].get('close_time') if ms else None);ticker=e.get('event_ticker','')
             if series.startswith('KXFEDDECISION'):
-                items=[{'name':m.get('yes_sub_title') or m.get('title',''),'p':가격_kx(m)} for m in ms]
+                items=[{'name':m.get('yes_sub_title') or m.get('title',''),'p':가격_kx(m)} for m in ms if 가격_kx(m) is not None]
                 if items:결과['FED']['decision'].append({'t':t,'label':라벨(t),'source':'kalshi','items':items})
                 continue
             kx_vol=sum((숫자(m.get('volume_fp'),0) or 0) for m in ms);kx_oi=sum((숫자(m.get('open_interest_fp'),0) or 0) for m in ms)
-            bracket=[];threshold=[]
+            bracket=[];threshold=[];vmax=max((숫자(m.get('volume_fp'),0) or 0) for m in ms) if ms else 0
             for m in ms:
                 p=가격_kx(m);typ=m.get('strike_type');lo,hi=숫자(m.get('floor_strike')),숫자(m.get('cap_strike'))
+                if p is None:continue
+                얇음=(숫자(m.get('volume_fp'),0) or 0)<max(1,.01*vmax)  # ★한 번도(거의) 안 거래된 문턱 — 시장조성자 자리값뿐이라 차분하면 먼 꼬리에 가짜 질량이 생긴다(2026-10-06, KXFED 2027)
                 if typ=='between':bracket.append({'lo':lo,'hi':hi,'p':p})
+                elif 얇음:continue
                 elif typ=='greater' and lo is not None:threshold.append((lo,p))
                 elif typ=='less' and hi is not None:threshold.append((hi,1-p))
             if bracket:
                 for m in ms:
+                    if 가격_kx(m) is None:continue
                     if m.get('strike_type')=='less':bracket.append({'lo':None,'hi':숫자(m.get('cap_strike')),'p':가격_kx(m)})
                     if m.get('strike_type')=='greater':bracket.append({'lo':숫자(m.get('floor_strike')),'hi':None,'p':가격_kx(m)})
                 bracket=[b for b in bracket if b['lo'] is not None or b['hi'] is not None];bracket.sort(key=lambda x:float('-inf') if x['lo'] is None else x['lo']);bins,raw=정규화(bracket)
                 h=horizon(asset,t,'kalshi','bracket',ticker,e.get('title',''),len(bracket),raw,kx_oi,bins,volume=kx_vol);h['unreliable']=raw<.5;결과[asset]['horizons'].append(h)
             elif len(threshold)>=2:
-                bins,n=문턱_구간(threshold);결과['_보정']+=n;note='촘촘한 0.002 문턱이라 분포 해석이 제한적' if series.startswith('KXUSDJPYAW') else '';결과[asset]['horizons'].append(horizon(asset,t,'kalshi','threshold',ticker,e.get('title',''),len(threshold),1,kx_oi,bins,note,volume=kx_vol))
+                bins,n=문턱_구간(threshold);결과['_보정']+=n;note='촘촘한 0.002 문턱이라 분포 해석이 제한적' if series.startswith('KXUSDJPYAW') else ''
+                h=horizon(asset,t,'kalshi','threshold',ticker,e.get('title',''),len(threshold),1,kx_oi,bins,note,volume=kx_vol)
+                if len(threshold)<3:h['unreliable']=True;h['note']=(note+' ' if note else '')+'양쪽 호가 있는 문턱이 %d개뿐(시장 %d개)'%(len(threshold),len(ms))
+                결과[asset]['horizons'].append(h)
 
 def 시장원본(offline,raw):
     """★ 오프라인 덤프와 미국 러너 온라인 수집을 분리하기 위해 있다."""
@@ -311,6 +323,14 @@ def 검사(data):
     if size>300*1024:errors.append('파일 크기 %d bytes'%size)
     if errors:print('CHECK FAIL:','; '.join(errors),file=sys.stderr);return False
     print('CHECK OK');return True
+def 눈금_맞춤(result):
+    """★ 이산 자산(기준금리)의 구간 (3.75,4.00] 을 4.00 중심 [3.875,4.125] 로 옮겨, '동결' 이 현재 선 위에 찍히게 하기 위해 있다."""
+    for x,step in 눈금.items():
+        result[x]['step']=step
+        for h in result[x]['horizons']:
+            for b in h['bins']:
+                if b['lo'] is not None:b['lo']=round(b['lo']+step/2,6)
+                if b['hi'] is not None:b['hi']=round(b['hi']+step/2,6)
 def 거래량_규칙(result):
     """★ 한 번도(거의) 거래되지 않은 시장의 기본 호가를 분포로 오독하지 않기 위해 있다 — 같은 (자산, 출처, 종류) 묶음 최대 거래량의 2% 미만 또는 100 미만이면 unreliable."""
     for x in 패널정보:
@@ -335,7 +355,7 @@ def main():
     skipped=[];spot,hist=현물과_이력(skipped);pm,kx=시장원본(a.offline,a.raw);result={x:{'unit':u,'decimals':d,'horizons':[],'touch':[],'decision':[]} for x,(u,d) in 패널정보.items()};result['_보정']=0
     pm_처리(pm,result,spot,skipped);kx_처리(kx,result,skipped)
     deribit_index=None if a.no_deribit else deribit_처리(result,skipped,a.raw)
-    거래량_규칙(result)
+    거래량_규칙(result);눈금_맞춤(result)
     for x in 패널정보:result[x]['horizons'].sort(key=lambda h:h['t'] or '')
     data={'generated_at':날짜시간.datetime.utcnow().replace(microsecond=0).isoformat()+'Z','spot':spot,'spot_sources':{'deribit_index':deribit_index},'history':hist,'panels':{x:result[x] for x in 패널정보},'skipped':skipped,'sources':{'polymarket':'https://gamma-api.polymarket.com','kalshi':'https://api.elections.kalshi.com/trade-api/v2','deribit':'https://www.deribit.com/api/v2/public','fred':'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU','frankfurter':'https://api.frankfurter.app','kraken':'https://api.kraken.com'},'_monotone_corrections':result['_보정']}
     저장(os.path.join(데이터,'latest.json'),data)

@@ -2,7 +2,7 @@
 
 한국에서는 Polymarket와 Kalshi API가 지리 차단된다. 따라서 GitHub Actions의 미국 러너가 시장을 수집해 `data` 브랜치에 올리고, 화면은 `raw.githubusercontent`에서 `latest.json`을 읽는다.
 
-`collector/collect.py`는 가격 구간 시장의 Yes 가격을 확률질량(bin)으로 정규화한다. 문턱 시장은 `P(만기 가격 ≥ X)`를 단조 보정한 뒤 인접 차분한다. Polymarket 도달 시장은 원본 `touch`로 보존하며, 위/아래 도달확률의 절반을 이용한 반사원리 근사를 `touch-approx` horizon으로 별도 제공한다. 이는 실제 만기분포가 아니므로 `note`를 반드시 확인해야 한다. 넓은 스프레드는 Yes 가격으로, Kalshi의 0 유동성 구간은 ask/2 또는 last로 완화해 쓰며 신뢰 불가 구간은 `unreliable`로 표시한다. 유동성 500 미만 이벤트는 제외하지 않고 `low_liquidity`로 표시한다.
+`collector/collect.py`는 가격 구간 시장의 Yes 가격을 확률질량(bin)으로 정규화한다. 문턱 시장은 `P(만기 가격 ≥ X)`를 단조 보정한 뒤 인접 차분한다. Polymarket 도달 시장은 원본 `touch`로 보존하며, 위/아래 도달확률의 절반을 이용한 반사원리 근사를 `touch-approx` horizon으로 별도 제공한다. 이는 실제 만기분포가 아니므로 `note`를 반드시 확인해야 한다. Kalshi 호가는 양쪽 호가가 있고 스프레드 0.3 이하일 때만 확률로 읽는다(매수 없음·매도 ≤0.05 는 ≈0, 매수 ≥0.95 는 ≈1, 그 밖은 읽지 않음 — 옛 체결가는 쓰지 않는다). 문턱 시장은 거래량이 그 만기 최대 문턱의 1% 미만이면 쓰지 않고, 남은 문턱이 3개 미만이면 `unreliable`. 기준금리처럼 눈금(`step`, 0.25)이 있는 자산은 문턱 차분 구간 (lo,hi] 의 뜻이 「hi」 이므로 구간을 눈금 중심으로 반 칸 옮겨 둔다. 유동성 500 미만 이벤트는 제외하지 않고 `low_liquidity`로 표시한다.
 
 ## 스키마
 
