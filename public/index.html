@@ -1,29 +1,160 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>폴리마켓 비트코인 가격 발견</title><style>
-:root{--bg:#0b0e14;--panel:#131722;--text:#d1d4dc;--muted:#787b86;--orange:#f5a524;--up:#089981;--down:#f23645;--line:#1e2431}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px}
-main{max-width:1500px;margin:auto;padding:24px 16px 40px}header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}h1{font-size:22px;margin:0}h2{font-size:15px;margin:0;font-weight:600}
-.subtitle,.muted,footer{color:var(--muted)}.subtitle{margin:6px 0 0}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 12px 10px;min-width:0}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}.spot{color:var(--orange);font-weight:600;font-variant-numeric:tabular-nums}
-.chart-wrap{position:relative;height:440px}.small .chart-wrap{height:230px}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
-.legend{position:absolute;left:8px;top:6px;font:11px ui-monospace,Menlo,Consolas,monospace;color:#b2b5be;pointer-events:none;white-space:nowrap}.legend .lg-t{color:var(--text)}.legend em{color:var(--orange);font-style:normal}
-.tip{position:absolute;display:none;background:#0b0e14ee;border:1px solid #2a3140;border-radius:6px;padding:7px 9px;font-size:12px;line-height:1.5;pointer-events:none;max-width:220px}
-.touch-grid,.small-grid{display:grid;gap:12px}.touch-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:14px}.small-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:12px}
-.touchbox h3{font-size:12px;color:var(--muted);margin:6px 0 4px;font-weight:600}
-.touchrow{display:grid;grid-template-columns:64px 1fr 46px;gap:6px;align-items:center;font-size:12px;height:19px;font-variant-numeric:tabular-nums}.touchrow b{text-align:right;font-weight:600}.touchrow.empty{visibility:hidden}
-.bar{height:7px;background:#1e2431;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--up);opacity:.85}.touchrow.down .bar i{background:var(--down)}
-.touch-divider{border-top:1px solid #4a5568;color:var(--orange);font-size:11px;margin:4px 0 3px;padding-top:3px;height:19px}
-.small-note{font-size:11px;margin:6px 0 0;line-height:1.5}
-.modes{display:flex;gap:4px;align-items:center}
-.when{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-basis:100%;font-size:12px}.when input[type=range]{flex:1;min-width:160px;accent-color:#b28cff;cursor:pointer}.when .play{font-size:13px;min-width:34px}.when .when-lab{min-width:70px}.when .when-lab{color:var(--muted);margin-right:2px}.when button{background:#1b2230;border:1px solid #2a3140;color:var(--muted);font:12px system-ui;padding:3px 9px;border-radius:6px;cursor:pointer}.when button.on{color:var(--text);border-color:#b28cff}.when button:disabled{opacity:.35;cursor:default}.when select{background:#1b2230;color:var(--text);border:1px solid #2a3140;border-radius:6px;font-size:12px;padding:2px 6px}.when label{color:var(--muted);margin-left:4px}
-.change{margin-top:12px}.change:empty{display:none}.hm-wrap{overflow-x:auto}.hm{border-collapse:collapse;font-size:11px}.hm th{color:var(--muted);font-weight:500;text-align:left;padding:2px 8px 2px 2px;white-space:nowrap}.hm thead th{text-align:center;padding:2px 3px}.hm td.hm-c{width:22px;height:18px;border:1px solid #0b0e14;cursor:pointer}.hm tbody tr{cursor:pointer}.hm tr.on th{color:var(--orange)}.spark{margin-top:8px;overflow-x:auto}.spark-head{font-size:12px;margin-bottom:4px}.modes button{background:#1b2230;border:1px solid #2a3140;color:var(--muted);font:12px system-ui;padding:3px 9px;border-radius:6px;cursor:pointer}.modes button.on{color:var(--text);border-color:var(--orange)}.axis-lock{background:#1b2230;border:1px solid #2a3140;color:var(--muted);font:12px system-ui;padding:3px 9px;border-radius:6px;cursor:pointer}.axis-lock.on{color:var(--text);border-color:#b28cff}
-footer{font-size:12px;margin-top:22px;line-height:1.7}footer a{color:var(--orange)}
-.badges{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}.badge{border:1px solid #2a3446;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted);white-space:nowrap}.badge.warn{color:var(--orange);border-color:var(--orange)}
-.hint{font-size:11px;color:var(--muted);margin:4px 0 0}
-@media(max-width:760px){header{display:block}.badges{margin-top:8px}.small-grid,.touch-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-wrap{height:360px}.touchrow{grid-template-columns:56px 1fr 44px}}
-</style></head><body><main>
-<header><div><h1>폴리마켓 비트코인 가격 발견</h1><p class="subtitle">예측시장과 옵션 가격으로 그린 미래 가격 확률분포 — 휠로 확대, 드래그로 이동, 슬라이더로 과거 시점의 예측 재생</p></div><div class="badges"><span id="data-age" class="badge">데이터 시각 확인 중…</span><span class="badge">Polymarket · Kalshi</span></div></header>
-<section id="btc-panel" class="panel"></section>
-<section id="change-panel" class="panel change"></section>
-<section id="small-grid" class="small-grid"></section>
-<footer><p>출처: Polymarket · Kalshi · FRED · ECB(frankfurter) · Binance/Kraken · 10분마다 갱신</p><p>예측시장 가격은 참가자들의 베팅이 시사하는 확률이지 예보가 아니다. 미래 캔들은 합친 분포의 중앙값을 따라 과거 변동성만큼 흔들어 그린 예시 경로(10~90% 밴드 안)이고, 흐린 선 10갈래는 같은 규칙의 다른 예시다. 날짜·시각은 UTC 기준.</p><p>유동성 낮은 구간은 잡음이 크다. * 표시는 저유동 시장. 거래가 거의 없는 시장은 아예 제외한다.</p><p>‘도달 근사’(월말·연말)는 도달 확률에 반사원리를 적용한 근사다. 음영은 예측시장(폴리마켓·칼시)과 Deribit 옵션의 위험중립 밀도를 합친 하나의 분포다. 만기마다 분위수(1~99%)를 뽑아 가중 평균하고, 도달 근사는 가중치를 낮춘다. 옵션 쪽은 헤지 수요 탓에 하락 꼬리가 실제 믿음보다 두꺼울 수 있다. ‘예측시장만’·‘옵션만’ 버튼으로 한쪽만 볼 수 있다.</p><p>슬라이더·▶ 재생은 수집할 때마다 남긴 과거 예측을 차례로 지나간다. 그 시점 뒤의 실제 가격은 흐린 점선으로 겹친다. 오른쪽 가격축을 위아래로, 아래 날짜축을 좌우로 끌면 비율이 바뀌고, ‘축 고정’으로 틀을 멈춘다.</p><p><a href="https://github.com/kimsubbae114/polymarket-btc">GitHub 저장소</a></p></footer>
-</main><script src="app.js"></script></body></html>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>폴리마켓 비트코인 가격 발견</title>
+<meta name="description" content="예측시장과 옵션 가격을 합쳐 그린 비트코인 미래 가격 확률분포">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Hallmark · genre: atmospheric · macrostructure: Stat-Led · theme: Amber Terminal (custom) · enrichment: none · nav: N9 · footer: Ft2 */
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R4 V4 · contrast: ink 15:1, ink-2 6.8:1, ink-3 3.6:1 (labels only) on paper */
+:root{
+  color-scheme:dark;
+  --color-paper:oklch(15.5% 0.006 70);--color-paper-2:oklch(19% 0.007 70);--color-paper-3:oklch(24% 0.008 70);
+  --color-ink:oklch(93% 0.008 80);--color-ink-2:oklch(72% 0.012 75);--color-ink-3:oklch(56% 0.012 75);
+  --color-rule:oklch(29% 0.008 70);--color-grid:oklch(22% 0.007 70);
+  --color-accent:oklch(79% 0.15 72);--color-accent-ink:oklch(18% 0.02 70);--color-bloom:oklch(79% 0.15 72 / .07);
+  --color-up:oklch(68% 0.13 165);--color-down:oklch(64% 0.2 25);--color-past:oklch(74% 0.13 300);--color-opt:oklch(70% 0.13 245);
+  --color-focus:var(--color-accent);
+  --font-body:"IBM Plex Sans KR",system-ui,"Malgun Gothic",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:72px;
+  --text-xs:.75rem;--text-sm:.8125rem;--text-md:.9375rem;--text-lg:1.25rem;--text-display:clamp(2.75rem,6vw + .5rem,5.25rem);
+  --radius:4px;--ease-out:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box}
+html,body{overflow-x:clip}
+body{margin:0;background:var(--color-paper);color:var(--color-ink);font:400 var(--text-md)/1.55 var(--font-body);-webkit-font-smoothing:antialiased}
+a{color:var(--color-accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--color-focus);outline-offset:2px}
+.num,.spot,.touchrow,.legend,.hm,.vault-stats strong,#data-age{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1440px;margin:0 auto;padding-inline:var(--space-4)}
+
+/* ── 스폰서 띠: 조용히, 한 줄 ── */
+.sponsor{border-bottom:1px solid var(--color-rule);background:var(--color-paper);font-size:var(--text-xs);color:var(--color-ink-2)}
+.sponsor .wrap{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-2) var(--space-5);align-items:center;padding-block:var(--space-2)}
+.sp-id{display:flex;gap:var(--space-2);align-items:baseline;min-width:0;flex-wrap:wrap}
+.sp-tag{font-family:var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--color-ink-3);border:1px solid var(--color-rule);border-radius:2px;padding:0 var(--space-1)}
+.sp-id b{color:var(--color-ink);font-weight:600}
+.sp-mid{display:flex;align-items:center;gap:var(--space-4);min-width:0}
+.sp-mid svg{width:120px;height:28px;flex:none;color:var(--color-ink-3)}.sp-mid circle{fill:var(--color-accent)}
+.vault-stats{display:flex;gap:var(--space-4);min-width:0;flex-wrap:wrap}
+.vault-stats div{white-space:nowrap}.vault-stats strong{color:var(--color-ink);font-weight:500;margin-right:var(--space-1)}
+.sp-links{display:flex;gap:var(--space-3);align-items:center;white-space:nowrap}
+.sp-links a{color:var(--color-ink-2);text-decoration:none}.sp-links a:hover{color:var(--color-ink)}
+.sp-links a.primary{color:var(--color-accent-ink);background:var(--color-accent);border-radius:999px;padding:3px var(--space-3);font-weight:600}
+.sp-foot{grid-column:1/-1;order:4;display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);color:var(--color-ink-3)}
+
+/* ── 상단 줄 ── */
+.top{display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding-block:var(--space-4);flex-wrap:wrap}
+.mark{font-weight:600;font-size:var(--text-md);letter-spacing:-.01em;color:var(--color-ink);text-decoration:none}
+.mark span{color:var(--color-accent)}
+.top-r{display:flex;gap:var(--space-4);align-items:center;font-size:var(--text-xs);color:var(--color-ink-2);flex-wrap:wrap}
+#data-age{color:var(--color-ink-2)}#data-age::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--color-up);margin-right:6px;vertical-align:1px}
+#data-age.warn{color:var(--color-accent)}#data-age.warn::before{background:var(--color-accent)}
+
+/* ── 숫자가 주인공인 첫 화면 ── */
+.hero{position:relative;padding-block:var(--space-5) var(--space-4);isolation:isolate}
+.hero::before{content:"";position:absolute;z-index:-1;left:-10%;top:-40%;width:55%;height:180%;background:radial-gradient(closest-side,var(--color-bloom),transparent);pointer-events:none}
+.eyebrow{font-family:var(--font-mono);font-size:var(--text-sm);color:var(--color-ink-2);letter-spacing:.02em;margin:0}
+.hero h1{margin:var(--space-1) 0 0;font-weight:600;line-height:1}
+#hero-figure{display:block;font-family:var(--font-mono);font-size:var(--text-display);font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;min-width:0}
+#hero-qual{display:block;margin-top:var(--space-3);font-size:var(--text-lg);font-weight:400;color:var(--color-ink-2);letter-spacing:-.01em;line-height:1.4;max-width:60ch}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-block:1px solid var(--color-rule);margin-bottom:var(--space-5)}
+.stats>div{padding:var(--space-3) var(--space-4);border-left:1px solid var(--color-rule);min-width:0}.stats>div:first-child{border-left:0;padding-left:0}
+.stats dd{margin:0}.stats dt{font-size:var(--text-xs);color:var(--color-ink-2)}
+.stats strong{display:block;font:600 var(--text-lg)/1.3 var(--font-mono);font-variant-numeric:tabular-nums;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats .sub{display:block;font-size:var(--text-xs);color:var(--color-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── 차트 작업대 ── */
+.panel{background:var(--color-paper-2);border-radius:var(--radius);padding:var(--space-3) var(--space-3) var(--space-2);min-width:0}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:var(--space-2) var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-2)}
+.panel-head h2{font-size:var(--text-sm);font-weight:600;margin:0;letter-spacing:.01em}
+.spot{color:var(--color-accent);font-weight:600}
+.modes{display:flex;gap:2px;background:var(--color-paper);border-radius:999px;padding:2px}
+.modes button,.axis-lock,.when button{font:500 var(--text-xs) var(--font-body);color:var(--color-ink-2);background:transparent;border:0;border-radius:999px;padding:4px 12px;cursor:pointer;white-space:nowrap}
+.modes button:hover,.axis-lock:hover,.when button:hover{color:var(--color-ink)}
+.modes button.on{background:var(--color-paper-3);color:var(--color-ink)}
+.axis-lock{border:1px solid var(--color-rule)}.axis-lock.on{color:var(--color-ink);border-color:var(--color-past)}
+.when{display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;flex-basis:100%;font-size:var(--text-xs);color:var(--color-ink-2);padding-top:var(--space-1)}
+.when input[type=range]{flex:1;min-width:140px;accent-color:var(--color-past);cursor:pointer}
+.when .play{min-width:36px;background:var(--color-paper);border:1px solid var(--color-rule)}.when .jump{border:1px solid var(--color-rule)}
+.when button:disabled{opacity:.4;cursor:default}.when-lab{min-width:96px;font-family:var(--font-mono)}
+.chart-wrap{position:relative;height:460px}.small .chart-wrap{height:220px}
+canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.legend{position:absolute;left:var(--space-2);top:var(--space-1);font-size:11px;color:var(--color-ink-2);pointer-events:none;white-space:nowrap;max-width:calc(100% - 80px);overflow:hidden;text-overflow:ellipsis}
+.legend .lg-t{color:var(--color-ink)}.legend em{color:var(--color-accent);font-style:normal}
+.tip{position:absolute;display:none;background:var(--color-paper);border:1px solid var(--color-rule);border-radius:var(--radius);padding:var(--space-2) var(--space-3);font-size:var(--text-xs);line-height:1.55;pointer-events:none;max-width:240px}
+.muted{color:var(--color-ink-2)}.small-note{font-size:var(--text-xs);margin:var(--space-2) 0 0;line-height:1.5}
+
+/* 도달 확률 표 */
+.touch-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-2) var(--space-5);margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-rule)}
+.touchbox h3{font-size:var(--text-xs);color:var(--color-ink-2);margin:0 0 var(--space-1);font-weight:600}
+.touchrow{display:grid;grid-template-columns:68px minmax(0,1fr) 48px;gap:var(--space-2);align-items:center;font-size:11.5px;height:19px}
+.touchrow b{text-align:right;font-weight:500}.touchrow.empty{visibility:hidden}.touchrow .lv{color:var(--color-ink-2)}
+.bar{height:5px;background:var(--color-paper-3);border-radius:1px;overflow:hidden}.bar i{display:block;height:100%;background:var(--color-up)}.touchrow.down .bar i{background:var(--color-down)}
+.touch-divider{border-top:1px dashed var(--color-ink-3);color:var(--color-accent);font:500 11px var(--font-mono);margin:var(--space-1) 0 3px;padding-top:3px;height:19px}
+
+/* 예측 변화 */
+.change{margin-top:var(--space-3)}.change:empty{display:none}
+.hm-wrap{overflow-x:auto}.hm{border-collapse:collapse;font-size:11px}
+.hm th{color:var(--color-ink-2);font-weight:400;text-align:left;padding:2px var(--space-2) 2px 2px;white-space:nowrap;font-family:var(--font-body)}.hm thead th{text-align:center;padding:2px 3px;font-family:var(--font-mono)}
+.hm td.hm-c{width:22px;height:18px;border:1px solid var(--color-paper-2);cursor:pointer}.hm tbody tr{cursor:pointer}.hm tr.on th{color:var(--color-accent)}
+.spark{margin-top:var(--space-2);overflow-x:auto}.spark-head{font-size:var(--text-xs);margin-bottom:var(--space-1)}
+
+/* 작은 패널 */
+.small-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3);margin-top:var(--space-3)}
+.small .panel-head h2{font-size:var(--text-xs);color:var(--color-ink-2)}
+
+/* ── 바닥: 용어 풀이 ── */
+footer{margin-top:var(--space-7);padding-block:var(--space-5) var(--space-6);border-top:1px solid var(--color-rule);font-size:var(--text-sm);color:var(--color-ink-2)}
+.notes{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--space-2) var(--space-5);margin:0;max-width:110ch}
+.notes dt{color:var(--color-ink);font-weight:600}.notes dd{margin:0;line-height:1.6}
+.foot-line{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-5);margin-top:var(--space-5);font-size:var(--text-xs)}
+
+@media (max-width:1000px){.sponsor .wrap{grid-template-columns:minmax(0,1fr) auto}.sp-mid{grid-column:1/-1;order:3}}
+@media (max-width:1180px){.vault-stats{gap:var(--space-3)}}
+@media (max-width:760px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stats>div:nth-child(3){border-left:0;padding-left:0}.stats>div:nth-child(n+3){border-top:1px solid var(--color-rule)}
+  .chart-wrap{height:360px}.touch-grid,.small-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .notes{grid-template-columns:minmax(0,1fr)}.notes dd{margin-bottom:var(--space-2)}
+  .sponsor .wrap{grid-template-columns:minmax(0,1fr)}.sp-links{flex-wrap:wrap;gap:var(--space-2) var(--space-3)}.sp-mid svg{display:none}.sponsor{font-size:11px}.sponsor .wrap{gap:var(--space-1) var(--space-3)}.sp-foot{gap:0 var(--space-3)}.hero{padding-block:var(--space-4) var(--space-4)}
+}
+@media (max-width:420px){.touch-grid,.small-grid{grid-template-columns:minmax(0,1fr)}.stats strong{font-size:var(--text-md)}#hero-qual{font-size:var(--text-md)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style></head><body>
+<aside class="sponsor" aria-label="스폰서"><div class="wrap">
+  <div class="sp-id"><span class="sp-tag">스폰서</span><b>BULBUL2DAO · 하이퍼리퀴드 볼트</b><span>이 페이지 운영자의 볼트입니다</span></div>
+  <div class="sp-mid"><svg id="vault-chart" viewBox="0 0 180 48" role="img" aria-label="전체 기간 누적 손익"><path id="vault-line" fill="none" stroke="currentColor" stroke-width="1.5"/><circle id="vault-end" r="2.5" cx="178" cy="24"/></svg>
+    <div class="vault-stats"><div><strong id="vault-apr">—</strong>30일 APR</div><div><strong id="vault-tvl">—</strong>TVL</div><div><strong id="vault-pnl">—</strong>누적 손익</div><div><strong>63.16%*</strong>최대 낙폭</div></div></div>
+  <div class="sp-links"><a class="primary" href="https://app.hyperliquid.xyz/vaults/0x65aee08c9235025355ac6c5ad020fb167ecef4fe" target="_blank" rel="noopener noreferrer">예치하기 ↗</a><a href="https://app.hyperliquid.xyz/join/BULBUL2" target="_blank" rel="noopener noreferrer">레퍼럴이 없다면 가입 ↗</a><a href="https://hypurrscan.io/vault/0x65aee08c9235025355ac6c5ad020fb167ecef4fe" target="_blank" rel="noopener noreferrer">Hypurrscan 확인 ↗</a></div>
+  <div class="sp-foot"><span id="vault-date">실시간 값 불러오는 중…</span><span id="vault-recent">최근 30일 — · 7일 —</span><span>*최대 낙폭은 운영자 제공 참고값(2026-10-23, API 미검증)</span><span>과거 수익이 미래 수익을 보장하지 않습니다 · 볼트 예치는 원금 손실이 날 수 있습니다</span></div>
+</div></aside>
+<div class="wrap">
+<nav class="top" aria-label="사이트"><a class="mark" href="./">폴리마켓 비트코인 <span>가격 발견</span></a><div class="top-r"><span id="data-age">데이터 시각 확인 중…</span><span>출처 Polymarket · Kalshi · Deribit</span></div></nav>
+<main>
+<section class="hero" aria-labelledby="hero-figure">
+  <p class="eyebrow" id="hero-eyebrow">시장이 보는 비트코인</p>
+  <h1><span id="hero-figure">—</span><span id="hero-qual">예측시장과 옵션 가격을 합친 확률분포를 불러오는 중입니다</span></h1>
+</section>
+<dl class="stats">
+  <div id="stat-7d"><dt>7일 뒤 중앙값</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
+  <div id="stat-30d"><dt>30일 뒤 중앙값</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
+  <div id="stat-band"><dt>연말 예상 범위</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
+  <div id="stat-dod"><dt>어제 대비 연말 중앙값</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
+</dl>
+<section id="btc-panel" class="panel" aria-label="비트코인 예상 가격 차트"></section>
+<section id="change-panel" class="panel change" aria-label="예측 변화"></section>
+<section id="small-grid" class="small-grid" aria-label="금리·환율"></section>
+</main>
+<footer>
+<dl class="notes">
+  <dt>무엇을 그리나</dt><dd>음영은 예측시장(폴리마켓·칼시)과 Deribit 옵션 가격을 합친 하나의 확률분포다. 만기마다 분위수(1~99%)를 뽑아 누적확률을 가중 평균한다. ‘예측시장만’·‘옵션만’으로 한쪽만 볼 수 있다.</dd>
+  <dt>예보가 아니다</dt><dd>예측시장 가격은 참가자들의 베팅이 시사하는 확률이다. 옵션 쪽은 헤지 수요 탓에 하락 꼬리가 실제 믿음보다 두꺼울 수 있다.</dd>
+  <dt>미래 캔들</dt><dd>합친 분포의 중앙값을 따라 과거 변동성만큼 흔들어 그린 예시 경로(10~90% 밴드 안)다. 흐린 선 10갈래는 같은 규칙의 다른 예시다.</dd>
+  <dt>재생</dt><dd>슬라이더·▶ 는 수집할 때마다 남긴 과거 예측을 차례로 지나간다. 그 시점 뒤의 실제 가격은 흐린 점선으로 겹친다.</dd>
+  <dt>축 조절</dt><dd>오른쪽 가격축을 위아래로, 아래 날짜축을 좌우로 끌면 비율이 바뀐다. ‘축 고정’으로 틀을 멈추고, 가격축 더블클릭으로 자동으로 돌아간다.</dd>
+  <dt>도달 근사·저유동</dt><dd>‘도달 근사’(월말·연말)는 도달 확률에 반사원리를 적용한 근사이고 가중치를 낮춘다. * 는 저유동 시장이며, 거래가 거의 없는 시장은 아예 뺀다.</dd>
+  <dt>출처·시각</dt><dd>Polymarket · Kalshi · Deribit · FRED · ECB(frankfurter) · Binance/Kraken. 수집은 GitHub Actions 로 몇 시간마다. 날짜·시각은 UTC.</dd>
+</dl>
+<p class="foot-line"><a href="https://github.com/kimsubbae114/polymarket-btc">GitHub 저장소</a><span>이 사이트가 도움이 되었다면 <a href="https://app.hyperliquid.xyz/vaults/0x65aee08c9235025355ac6c5ad020fb167ecef4fe" target="_blank" rel="noopener noreferrer">운영자 볼트</a>도 한번 봐 주세요</span><span>궁금한 점은 <a href="https://x.com/kimsubbae114" target="_blank" rel="noopener noreferrer">X @kimsubbae114</a> · <a href="https://t.me/kimsubbae113" target="_blank" rel="noopener noreferrer">텔레그램 @kimsubbae113</a></span></p>
+</footer>
+</div>
+<script src="app.js"></script></body></html>
