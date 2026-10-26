@@ -5,7 +5,7 @@ const C={text:'#d1d4dc',muted:'#787b86',up:'#089981',down:'#f23645',orange:'#f5a
 const rgba=(c,a)=>`rgba(${c.join()},${a})`;
 // ★색·글꼴의 정본은 index.html 의 CSS 토큰. 캔버스는 oklch 를 못 받는 브라우저가 있어 1×1 캔버스로 RGB 를 뽑아 쓴다(못 읽으면 위 기본값).
 function cssRGB(v){const k=document.createElement('canvas');k.width=k.height=1;const g=k.getContext('2d');g.fillStyle='#010203';g.fillStyle=v;if(g.fillStyle==='#010203')return null;g.fillRect(0,0,1,1);const d=g.getImageData(0,0,1,1).data;return[d[0],d[1],d[2]]}
-function loadPalette(){try{const cs=getComputedStyle(document.documentElement),v=n=>cs.getPropertyValue(n).trim();for(const[k,n,arr]of[['text','--color-ink','inkRGB'],['muted','--color-ink-2'],['line','--color-ink-2'],['cross','--color-ink-3'],['up','--color-up'],['down','--color-down'],['orange','--color-accent','acc'],['grid','--color-grid'],['axis','--color-rule'],['past','--color-past'],['paper','--color-paper'],['tagBg','--color-paper-3'],['_opt','--color-opt','opt']]){const x=v(n),r=x&&cssRGB(x);if(!r)continue;C[k]=`rgb(${r.join()})`;if(arr)C[arr]=r}const m=v('--font-mono'),b=v('--font-body');if(m)C.mono=m;if(b)C.sans=b}catch(_){}}
+function loadPalette(){try{const cs=getComputedStyle(document.documentElement),v=n=>cs.getPropertyValue(n).trim();for(const[k,n,arr]of[['text','--color-ink','inkRGB'],['muted','--color-ink-2'],['line','--color-ink-2'],['cross','--color-ink-3'],['up','--color-up','upRGB'],['down','--color-down','downRGB'],['orange','--color-accent','acc'],['grid','--color-grid'],['axis','--color-rule'],['past','--color-past'],['paper','--color-paper'],['tagBg','--color-paper-3'],['_opt','--color-opt','opt']]){const x=v(n),r=x&&cssRGB(x);if(!r)continue;C[k]=`rgb(${r.join()})`;if(arr)C[arr]=r}const m=v('--font-mono'),b=v('--font-body');if(m)C.mono=m;if(b)C.sans=b}catch(_){}}
 const finite=v=>typeof v==='number'&&Number.isFinite(v);
 
 // ---------- 순수 함수 (tests/test_app.js 가 검증) ----------
@@ -61,14 +61,54 @@ function fmtFull(v,d=0){return finite(v)?v.toLocaleString('en-US',{minimumFracti
 function dateLabel(t){const d=new Date(t);return`${d.getUTCMonth()+1}/${d.getUTCDate()}`}
 const lerp=(a,b,w)=>a+(b-a)*w,hkey=h=>`${h.source}|${h.kind}|${h.t}`;
 
+// ---------- 옵션 데스크(v6): Deribit 옵션 전체 요약 → 감마 집중·가정 감마 지표·기대 변동폭·RR·맥스 페인 ----------
+// GPT 검토(2026-10-27, REJECT 반영): 공개 OI 로는 딜러가 롱인지 숏인지 모른다 → 「딜러 국면」 판정을 하지 않는다.
+//   부호 없는 「감마 가중 OI」(콜·풋 따로)를 기본으로, 콜+/풋− 부호는 「가정 지표」로만 이름 붙인다.
+//   인버스(BTC 정산) 옵션: USD 가치 = (S/F)·Black(F) → 1% 감마 지표 = 0.01·OI·Γ_Black·S·F (F² 아님).
+const MON={JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11},YEAR=365*DAY;
+function ncdf(x){const t=1/(1+.2316419*Math.abs(x)),d=.3989423*Math.exp(-x*x/2),p=d*t*(.3193815+t*(-.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));return x>0?1-p:p}
+const npdf=x=>Math.exp(-x*x/2)/Math.sqrt(2*Math.PI);
+function bsD1(F,K,T,v){return(Math.log(F/K)+v*v*T/2)/(v*Math.sqrt(T))}
+function bsGamma(F,K,T,v){if(!(T>0&&v>0&&F>0&&K>0))return 0;return npdf(bsD1(F,K,T,v))/(F*v*Math.sqrt(T))}
+// 비프리미엄조정 선물 델타 N(d1) / N(d1)−1
+function bsDelta(F,K,T,v,cp){if(!(T>0&&v>0))return cp==='C'?(F>K?1:0):(F<K?-1:0);const n=ncdf(bsD1(F,K,T,v));return cp==='C'?n:n-1}
+// 'BTC-27NOV26-73000-P' → 만기(08:00 UTC)·행사가·종류. 이상한 행은 null(그 OI 는 dropped 로 센다)
+function parseOpt(r,now){const m=/^BTC-(\d{1,2})([A-Z]{3})(\d{2})-(\d+)-([CP])$/.exec(r&&r.instrument_name||'');if(!m||!(MON[m[2]]>=0))return null;const exp=Date.UTC(2000+ +m[3],MON[m[2]],+m[1],8),iv=(+r.mark_iv)/100,F=+r.underlying_price,oi=+r.open_interest;if(!finite(iv)||!finite(F)||!finite(oi)||F<=0||oi<0)return null;return{exp,T:(exp-now)/YEAR,K:+m[4],cp:m[5],iv,F,oi,vol:finite(+r.volume)?+r.volume:0}}
+// 옵션 하나의 1% 감마 지표(부호 없음). S 로 현물을 옮기면 F 도 같은 비율(베이시스 고정)
+const gUnit=(o,S,S0)=>{const F=o.F*S/S0;return bsGamma(F,o.K,o.T,o.iv)*o.oi*S*F*.01};
+function gexAt(os,S,S0){let g=0;for(const o of os)g+=(o.cp==='C'?1:-1)*gUnit(o,S,S0);return g}
+function strikeGamma(os,S0){const m=new Map;for(const o of os){const u=gUnit(o,S0,S0),x=m.get(o.K)||{k:o.K,c:0,p:0};if(o.cp==='C')x.c+=u;else x.p+=u;m.set(o.K,x)}return[...m.values()].sort((a,b)=>a.k-b.k)}
+// 가정 감마 지표의 부호 전환: ±30% 를 촘촘히(600칸, 약 $80) 훑고, 양 끝이 사실상 0 인 구간은 버린다. 여러 개면 전부 돌려준다
+function gammaFlips(os,S0){const N=600,lo=S0*.7,hi=S0*1.3,xs=[],gs=[];for(let i=0;i<=N;i++){const S=lo+(hi-lo)*i/N;xs.push(S);gs.push(gexAt(os,S,S0))}const tiny=Math.max(...gs.map(Math.abs))*1e-4,out=[];for(let i=1;i<=N;i++){const a=gs[i-1],b=gs[i];if(Math.abs(a)<tiny||Math.abs(b)<tiny||(a<0)===(b<0))continue;out.push({S:xs[i-1]+(xs[i]-xs[i-1])*(-a)/(b-a),up:b>a})}return out}
+// 맥스 페인(USD 내재가치 지급 최소). 최소점이 여럿이면 구간
+function maxPain(os){const ks=[...new Set(os.map(o=>o.K))].sort((a,b)=>a-b),L=X=>os.reduce((v,o)=>v+o.oi*(o.cp==='C'?Math.max(X-o.K,0):Math.max(o.K-X,0)),0),vs=ks.map(L),m=Math.min(...vs),hit=ks.filter((k,i)=>vs[i]<=m*(1+1e-9));return{lo:hit[0],hi:hit[hit.length-1]}}
+// ATM IV: F 를 양쪽에서 감싸는 OTM 점(풋 K<F, 콜 K≥F)이 있어야 계산, 아니면 NaN
+function atmIV(os){const F=os[0].F,p=os.filter(o=>o.cp==='P'&&o.K<F&&o.iv>0).sort((a,b)=>b.K-a.K)[0],c=os.filter(o=>o.cp==='C'&&o.K>=F&&o.iv>0).sort((a,b)=>a.K-b.K)[0];if(!p||!c)return NaN;if(c.K===p.K)return c.iv;return p.iv+(c.iv-p.iv)*(F-p.K)/(c.K-p.K)}
+// 고정 기간 변동폭: 목표 시점을 감싸는 두 만기의 ATM 총분산 w=σ²T 를 시간 보간. 감싸는 만기가 없으면 null(외삽 안 함)
+function fixedMove(ex,now,h){const t=now+h*3600e3,a=ex.filter(e=>e.exp<=t&&finite(e.atm)).pop(),b=ex.find(e=>e.exp>t&&finite(e.atm));if(!b)return null;const T=h/(365*24),wa=a?a.atm*a.atm*a.T:0,Ta=a?a.T:0,w=wa+(b.atm*b.atm*b.T-wa)*(T-Ta)/(b.T-Ta);if(!(w>0))return null;const iv=Math.sqrt(w/T);return{h,iv,F:b.F,usd:b.F*Math.sqrt(w)}}
+// 25델타 RR: 델타 ±0.25 를 실제로 감싸는 인접 행사가에서만 보간. 못 감싸면 NaN
+function rr25(os){const F=os[0].F,T=os[0].T,side=(cp,target)=>{const xs=os.filter(o=>o.cp===cp&&o.iv>0).sort((a,b)=>a.K-b.K).map(o=>({d:bsDelta(F,o.K,T,o.iv,cp),iv:o.iv})),hits=[];for(let i=1;i<xs.length;i++){const a=xs[i-1],b=xs[i];if((a.d-target)*(b.d-target)<=0&&a.d!==b.d)hits.push(a.iv+(b.iv-a.iv)*(target-a.d)/(b.d-a.d))}return hits.length===1?hits[0]:NaN};return(side('C',.25)-side('P',-.25))*100}
+function optionDesk(rows,now,spot){const all=(rows||[]).map(r=>parseOpt(r,now)),ok=all.filter(Boolean),rawOI=(rows||[]).reduce((s,r)=>s+(+r.open_interest||0),0);if(ok.length<20)return null;
+  const S0=finite(spot)&&spot>0?spot:ok[0].F,live=ok.filter(o=>o.T>1/(365*24)&&o.iv>0),byExp=new Map;live.forEach(o=>{if(!byExp.has(o.exp))byExp.set(o.exp,[]);byExp.get(o.exp).push(o)});
+  const exps=[...byExp.keys()].sort((a,b)=>a-b),ex=exps.map(e=>{const os=byExp.get(e);return{exp:e,T:os[0].T,F:os[0].F,atm:atmIV(os),oi:os.reduce((s,o)=>s+o.oi,0)}}),totOI=ok.reduce((s,o)=>s+o.oi,0);
+  const nearE=ex.find(e=>finite(e.atm))||null,near=nearE&&{exp:nearE.exp,hours:nearE.T*365*24,iv:nearE.atm,usd:nearE.F*nearE.atm*Math.sqrt(nearE.T)};
+  const sg=strikeGamma(live,S0),tot=x=>x.c+x.p,top=sg.reduce((a,b)=>tot(b)>tot(a)?b:a,sg[0]),up=sg.filter(x=>x.k>S0),dn=sg.filter(x=>x.k<S0),cw=up.length?up.reduce((a,b)=>b.c>a.c?b:a):null,pw=dn.length?dn.reduce((a,b)=>b.p>a.p?b:a):null;// 콜 벽=현물 위 콜 감마OI 최대, 풋 벽=현물 아래 풋 감마OI 최대
+  const buckets=[[0,7],[7,30],[30,90],[90,1e9]].map(([a,b])=>{const os=live.filter(o=>o.T*365>=a&&o.T*365<b);return{a,b,g:os.reduce((s,o)=>s+gUnit(o,S0,S0),0),net:gexAt(os,S0,S0)}});
+  const r30=ex.reduce((a,e)=>Math.abs(e.exp-now-30*DAY)<Math.abs(a.exp-now-30*DAY)?e:a,ex[0]),big=ex.find(e=>e.exp-now>DAY&&e.oi>=.05*totOI)||ex[0],bos=byExp.get(big.exp);
+  const oiC=ok.filter(o=>o.cp==='C').reduce((s,o)=>s+o.oi,0),oiP=totOI-oiC,vC=ok.filter(o=>o.cp==='C').reduce((s,o)=>s+o.vol,0),vP=ok.reduce((s,o)=>s+o.vol,0)-vC;
+  const chainK=[...new Set(bos.map(o=>o.K))].sort((a,b)=>Math.abs(a-S0)-Math.abs(b-S0)).slice(0,15).sort((a,b)=>b-a);
+  return{now,spot:S0,n:ok.length,droppedOI:rawOI-totOI,near,move24:fixedMove(ex,now,24),move7d:fixedMove(ex,now,24*7),gamma:sg,top,callWall:cw&&cw.c>0?cw:null,putWall:pw&&pw.p>0?pw:null,
+    gexNet:gexAt(live,S0,S0),flips:gammaFlips(live,S0),buckets,pcOI:oiC?oiP/oiC:NaN,pcVol:vC?vP/vC:NaN,rr:{exp:r30.exp,days:(r30.exp-now)/DAY,v:rr25(byExp.get(r30.exp))},
+    maxPain:Object.assign({exp:big.exp,oi:big.oi},maxPain(bos)),chain:{exp:big.exp,rows:chainK.map(K=>({K,c:bos.filter(o=>o.K===K&&o.cp==='C').reduce((s,o)=>s+o.oi,0),p:bos.filter(o=>o.K===K&&o.cp==='P').reduce((s,o)=>s+o.oi,0)}))}}}
+
 // ---------- 차트 ----------
 // 시점(state) = {label, now, spot, layers:{pm,opt}, present, data}. 슬라이더 pos 가 정수면 그 시점, 소수면 앞뒤 시점의 분위수를 섞는다 → 분포·밴드·경로가 연속으로 변형.
 class Chart{
   constructor(el,o){this.o=o;el.innerHTML=`<div class="panel-head"><h2>${o.title}</h2><span class="spot">${fmt(o.spot,o.decimals,o.unit)}</span></div><div class="chart-wrap"><canvas></canvas><div class="legend"></div><div class="tip"></div></div>`;this.canvas=el.querySelector('canvas');this.wrap=el.querySelector('.chart-wrap');this.tip=el.querySelector('.tip');this.legend=el.querySelector('.legend');this.ctx=this.canvas.getContext('2d');
-    this.hist=(o.history||[]).map(x=>o.candles?{t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]}:{t:Date.parse(x[0]),v:+x[1]}).filter(x=>finite(x.t));
+    this.hist=(o.history||[]).map(x=>o.candles?{t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],vol:+x[5],buy:+x[6]}:{t:Date.parse(x[0]),v:+x[1]}).filter(x=>finite(x.t));
     this.vol=o.candles?realizedVol(o.history):.01;this.now=o.now||Date.now();this.qa=new Float64Array(NQ);this.qb=new Float64Array(NQ);this.tmp=new Float64Array(NQ);
     this.noise=mkNoise(o.title);this.paths=Array.from({length:10},(_,i)=>mkNoise(o.title+':'+i));this.yLock=null;
-    if(o.layers){o.mode=o.mode||'both'}
+    if(o.layers){o.mode=o.mode||'both'}if(o.flow)this.wrap.classList.add('flow');
     this.setStates(o.states||[{label:'현재',now:this.now,spot:o.spot,layers:o.layers||{pm:o.horizons,opt:[]},present:true}],true);
     const first=this.hist.length?this.hist[0].t:this.now-30*DAY;
     this.view={t0:o.small?first:Math.max(first,this.now-30*DAY),t1:Math.min(Math.max(this.max+2*DAY,this.now+7*DAY),this.now+130*DAY)};// 기본 화면은 약 4개월 — 더 먼 만기는 휠로 축소해서 본다
@@ -83,6 +123,18 @@ class Chart{
     this.canvas.ondblclick=e=>{if(this.zone(e)==='y'){this.yLock=null;this.lockUi();this.requestDraw()}};
     this.canvas.onwheel=e=>{e.preventDefault();const f=e.deltaY>0?1.15:1/1.15;if(this.zone(e)==='y'){this.scaleY(f);return}const r=this.canvas.getBoundingClientRect(),tc=this.tAt(e.clientX-r.left),span=(this.view.t1-this.view.t0)*f;if(span<5*DAY||span>600*DAY)return;this.view={t0:tc-(tc-this.view.t0)*f,t1:tc+(this.view.t1-tc)*f};this.requestDraw()};
   }
+  // ── v6 덧그림: 매물대(왼쪽)·행사가별 감마 막대(오른쪽)·옵션 가로선·아래 순매수/OI 띠. 자료가 없으면 조용히 건너뛴다
+  profile(){const vp=this.o.flow&&S.vp;if(!vp)return;const c=this.ctx,m=Math.max(...vp.bins.map(b=>b.v))||1,W=Math.min(90,this.pw*.12);c.save();c.fillStyle=rgba(C.inkRGB,.09);for(const b of vp.bins){const y1=this.y(b.hi),y2=this.y(b.lo);if(y2<this.T||y1>this.T+this.ph)continue;c.fillRect(this.L,y1+.5,W*b.v/m,Math.max(1,y2-y1-1))}c.fillStyle=rgba(C.inkRGB,.35);c.font='10px '+C.sans;c.textAlign='left';c.fillText(`매물대 ${vp.days}일`,this.L+3,this.T+this.ph-4);c.restore()}
+  levelList(){const d=this.o.flow&&S.desk;if(!d)return[];const L=[];if(d.callWall)L.push({v:d.callWall.k,col:C.up,t:'콜 벽'});if(d.putWall)L.push({v:d.putWall.k,col:C.down,t:'풋 벽'});if(d.top&&!L.some(x=>x.v===d.top.k))L.push({v:d.top.k,col:C.orange,t:'감마 최대'});const f=d.flips.slice().sort((a,b)=>Math.abs(a.S-d.spot)-Math.abs(b.S-d.spot))[0];if(f)L.push({v:Math.round(f.S/100)*100,col:C.past,t:'가정 플립',dash:[5,4]});return L}
+  levels(){const d=this.o.flow&&S.desk;if(!d)return;const c=this.ctx,top=this.T,bot=this.T+this.ph,R=this.L+this.pw,mx=Math.max(...d.gamma.map(g=>g.c+g.p))||1,W=Math.min(80,this.pw*.1);
+    c.save();for(const g of d.gamma){const y=this.y(g.k);if(y<top||y>bot)continue;const wc=W*g.c/mx,wp=W*g.p/mx;c.fillStyle=rgba(C.upRGB||[8,153,129],.55);c.fillRect(R-wc,y-1.5,wc,3);c.fillStyle=rgba(C.downRGB||[242,54,69],.55);c.fillRect(R-wc-wp,y-1.5,wp,3)}
+    for(const l of this.levelList()){const y=Math.round(this.y(l.v))+.5;if(y<top||y>bot)continue;c.strokeStyle=l.col;c.globalAlpha=.75;c.setLineDash(l.dash||[2,3]);c.lineWidth=1;c.beginPath();c.moveTo(this.L,y);c.lineTo(R,y);c.stroke();c.globalAlpha=1;c.setLineDash([]);c.fillStyle=l.col;c.font='10px '+C.sans;c.textAlign='right';c.fillText(l.t,R-W-6,y-3)}c.restore()}
+  levelTags(){for(const l of this.levelList())this.tag(l.v,l.col,C.paper)}
+  flowPane(){if(!this.o.flow)return;const c=this.ctx,y0=this.T+this.ph+36,H=this.FH-12,{t0,t1}=this.view;if(H<20)return;c.save();c.fillStyle=C.paper;c.fillRect(0,y0-4,this.w,H+12);c.strokeStyle=C.axis;c.beginPath();c.moveTo(this.L,y0-2.5);c.lineTo(this.L+this.pw,y0-2.5);c.stroke();
+    let cum=0;const cvd=this.hist.filter(h=>finite(h.buy)&&finite(h.vol)).map(h=>{cum+=2*h.buy-h.vol;return[h.t,cum]}),oi=(S.oi||[]),ser=[[cvd,C.text,'누적 순매수(바이낸스 현물 테이커)',v=>(v>=0?'+':'−')+fmt(Math.abs(v),0)+' BTC'],[oi,C.orange,'선물 미결제약정(바이낸스)',v=>'$'+(v/1e9).toFixed(2)+'B']];
+    let lx=this.L+4;for(const[pts,col,name,f]of ser){const vis=pts.filter(p=>p[0]>=t0-DAY&&p[0]<=t1);if(vis.length<2)continue;const lo=Math.min(...vis.map(p=>p[1])),hi=Math.max(...vis.map(p=>p[1])),Y=v=>y0+H-(v-lo)/((hi-lo)||1)*H;c.strokeStyle=col;c.lineWidth=1.3;c.beginPath();vis.forEach((p,i)=>i?c.lineTo(this.x(p[0]),Y(p[1])):c.moveTo(this.x(p[0]),Y(p[1])));c.stroke();
+      const txt=`${name} ${f(vis[vis.length-1][1])}`;c.font='10px '+C.sans;c.fillStyle=col;c.textAlign='left';c.fillText(txt,lx,y0+9);lx+=c.measureText(txt).width+16}
+    if(lx===this.L+4){c.fillStyle=C.muted;c.font='10px '+C.sans;c.fillText('순매수·미결제약정 자료를 불러오는 중',this.L+4,y0+9)}c.restore()}
   zone(e){const r=this.canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;return x>this.L+this.pw?'y':y>this.T+this.ph?'x':'plot'}
   lockUi(){if(this.lockBtn){this.lockBtn.textContent=this.yLock?'축 고정됨 · 풀기':'축 고정';this.lockBtn.classList.toggle('on',!!this.yLock)}}
   scaleY(f,base){const b=base||{lo:this.lo,hi:this.hi},c=(b.lo+b.hi)/2,h=(b.hi-b.lo)/2*f;if(!(h>0))return;this.yLock={lo:c-h,hi:c+h};this.lockUi();this.requestDraw()}
@@ -112,11 +164,11 @@ class Chart{
     const key=[this.pos,this.o.mode,this.states.length].join();if(key===this.futKey)return this.fut;const{n0,n1,sp}=this.mix(),g=this.o.candles?dayGrid((t,o)=>this.qAt(t,o),n0,n1):[];
     this.noise.set(n0);this.paths.forEach(p=>p.set(n0));this.fut=futurePath(g,n0,n1,sp,this.vol,this.noise);this.pathFut=this.paths.map(p=>futurePath(g,n0,n1,sp,this.vol,p,false));this.futKey=key;return this.fut}
   draw(){const r=this.wrap.getBoundingClientRect(),d=devicePixelRatio||1;if(!r.width)return;this.w=r.width;this.h=r.height;const cw=Math.round(r.width*d),ch=Math.round(r.height*d);if(this.canvas.width!==cw||this.canvas.height!==ch){this.canvas.width=cw;this.canvas.height=ch}this.ctx.setTransform(d,0,0,d,0,0);
-    this.L=6;this.T=8;this.pw=this.w-6-62;this.ph=this.h-8-34;this.range();this.future();
+    this.L=6;this.T=8;this.pw=this.w-6-62;this.FH=this.o.flow?Math.min(110,Math.max(70,this.h*.18)):0;this.ph=this.h-8-34-this.FH;this.range();this.future();
     const key=[this.view.t0,this.view.t1,this.lo,this.hi,cw,ch,this.o.mode||'',this.pos].join();
     if(key!==this.layerKey){// ★정적 층(격자·밀도·밴드)은 뷰·시점이 바뀔 때만 다시 그린다 — 마우스 이동은 캔들·십자선만
       const o=this.layer||(this.layer=document.createElement('canvas'));if(o.width!==cw||o.height!==ch){o.width=cw;o.height=ch}const g=o.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,cw,ch);g.setTransform(d,0,0,d,0,0);g.save();g.beginPath();g.rect(this.L,this.T,this.pw,this.ph);g.clip();this.gridLines(g);this.density(g);this.band(g);g.restore();this.layerKey=key}
-    const c=this.ctx;c.clearRect(0,0,this.w,this.h);c.drawImage(this.layer,0,0,this.w,this.h);c.save();c.beginPath();c.rect(this.L,this.T,this.pw,this.ph);c.clip();this.historyDraw();this.futureDraw();this.marks();c.restore();this.axes();this.crosshair();this.legendText()}
+    const c=this.ctx;c.clearRect(0,0,this.w,this.h);c.drawImage(this.layer,0,0,this.w,this.h);c.save();c.beginPath();c.rect(this.L,this.T,this.pw,this.ph);c.clip();this.profile();this.historyDraw();this.futureDraw();this.marks();this.levels();c.restore();this.axes();this.flowPane();this.crosshair();this.legendText()}
   nowX(){return this.x(this.mix().n0)}
   rgb(){return this.o.mode==='opt'?C.opt:C.acc}
   gridLines(c){c.strokeStyle=C.grid;c.lineWidth=1;for(let i=0;i<=5;i++){const y=Math.round(this.T+this.ph*i/5)+.5;c.beginPath();c.moveTo(this.L,y);c.lineTo(this.L+this.pw,y);c.stroke()}
@@ -152,7 +204,7 @@ class Chart{
     const xn=this.nowX();c.textAlign='center';for(const t of this.ticks()){if(Math.abs(this.x(t)-xn)<34)continue;const d=new Date(t);c.fillText(d.getUTCDate()===1||(this.view.t1-this.view.t0)>150*DAY?`${d.getUTCMonth()+1}월${d.getUTCDate()===1?'':' '+d.getUTCDate()+'일'}`:dateLabel(t),this.x(t),this.T+this.ph+14)}
     c.fillStyle=st.present?C.orange:C.past;c.fillText(st.present?'지금':st.label+' 시점',xn,this.T+this.ph+14);
     const hs=st.raw,xs=hs.map(h=>this.x(Date.parse(h.t))),ok=spacedLabels(xs,40);c.fillStyle=C.text;c.font='10px '+C.sans;hs.forEach((h,i)=>{if(ok[i]&&xs[i]>=this.L&&xs[i]<=this.L+this.pw)c.fillText(h.label+(h.low_liquidity?'*':''),xs[i],this.T+this.ph+28)});
-    this.tag(lerp(A.spot,B.spot,w),st.present?C.orange:C.past,C.paper)}
+    this.levelTags();this.tag(lerp(A.spot,B.spot,w),st.present?C.orange:C.past,C.paper)}
   tag(v,bg,fg){if(!finite(v))return;const c=this.ctx,y=this.y(v);if(y<this.T||y>this.T+this.ph)return;const s=fmtFull(v,this.o.decimals);c.font='10px '+C.mono;const w=c.measureText(s).width+8;c.fillStyle=bg;c.fillRect(this.L+this.pw+1,y-8,Math.max(w,this.w-this.L-this.pw-2),16);c.fillStyle=fg;c.textAlign='left';c.fillText(s,this.L+this.pw+5,y+4)}
   crosshair(){if(!this.cross)return;const c=this.ctx,{x,y}=this.cross;c.save();c.setLineDash([3,3]);c.strokeStyle=C.cross;c.beginPath();c.moveTo(this.L,y+.5);c.lineTo(this.L+this.pw,y+.5);c.moveTo(x+.5,this.T);c.lineTo(x+.5,this.T+this.ph);c.stroke();c.restore();this.tag(this.vAt(y),C.tagBg,C.text)}
   nearestCandle(t){const n0=this.mix().n0,all=this.o.candles?this.hist.filter(h=>h.t<=n0).concat(this.fut||[]):[];if(!all.length)return null;return all.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a)}
@@ -172,7 +224,7 @@ class Chart{
 }
 
 // ---------- 데이터 ----------
-async function candles(){try{const r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=60');if(!r.ok)throw 0;return(await r.json()).map(x=>[x[0],+x[1],+x[2],+x[3],+x[4]])}catch(_){try{const r=await fetch('https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440');const d=await r.json(),k=Object.values(d.result).find(Array.isArray)||[];return k.slice(-60).map(x=>[x[0]*1000,+x[1],+x[2],+x[3],+x[4]])}catch(__){return[]}}}
+async function candles(){try{const r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=60');if(!r.ok)throw 0;return(await r.json()).map(x=>[x[0],+x[1],+x[2],+x[3],+x[4],+x[5],+x[9]])}catch(_){try{const r=await fetch('https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440');const d=await r.json(),k=Object.values(d.result).find(Array.isArray)||[];return k.slice(-60).map(x=>[x[0]*1000,+x[1],+x[2],+x[3],+x[4]])}catch(__){return[]}}}
 // ---------- 도달 확률 표: 네 표의 「현재」 구분선 높이를 맞추고, 확률을 막대로 ----------
 function touchTable(p,spot,d,u){const tables=selectTouchTables(p.touch).map(t=>{const lv=(t.levels||[]).filter(z=>z.p>.002&&z.p<.995);const up=lv.filter(z=>z.dir==='up'&&z.price>spot).sort((a,b)=>a.price-b.price).slice(0,10).sort((a,b)=>b.price-a.price),dn=lv.filter(z=>z.dir==='down'&&z.price<spot).sort((a,b)=>b.price-a.price).slice(0,10);return{t,up,dn}});
   const nUp=Math.max(0,...tables.map(x=>x.up.length)),nDn=Math.max(0,...tables.map(x=>x.dn.length));
@@ -185,10 +237,10 @@ const S={latest:null,hist:[],snaps:{},index:[],summary:null,chart:null,box:null,
 function buildLayers(d,now){const p=d.panels.BTC,pm=selectHorizons(p.horizons,now,d.generated_at,'BTC','pm'),opt=selectHorizons(p.horizons,now,d.generated_at,'BTC','opt');return{pm,opt}}
 async function loadSnap(date){if(S.snaps[date])return S.snaps[date];const r=await fetch(`${HIST}daily/${date}.json?t=${Date.now()}`);if(!r.ok)throw new Error('snapshot '+date);return S.snaps[date]=await r.json()}
 function tween(from,to,ms,step,done){const t0=performance.now(),f=()=>{const u=Math.min(1,(performance.now()-t0)/ms),e=1-Math.pow(1-u,3);step(from+(to-from)*e);if(u<1)requestAnimationFrame(f);else if(done)done()};requestAnimationFrame(f)}
-function renderTouch(data,spot){const e=document.querySelector('#btc-panel');e.querySelector('.touch-grid')?.remove();e.insertAdjacentHTML('beforeend',touchTable(data.panels.BTC,spot,0,'USD'))}
+function renderTouch(data,spot){const e=document.querySelector('#touch-panel')||document.querySelector('#btc-panel');e.querySelector('.touch-grid')?.remove();e.insertAdjacentHTML('beforeend',touchTable(data.panels.BTC,spot,0,'USD'))}
 function renderMain(){const e=document.querySelector('#btc-panel'),d=S.latest,now=Date.now(),spot=S.hist.length?S.hist[S.hist.length-1][4]:d.spot.BTC,L=buildLayers(d,now);
   S.present={label:'현재',now,spot,layers:L,present:true,data:d};
-  S.chart=new Chart(e,{title:'BTC/USD',spot,unit:'USD',decimals:0,layers:L,mode:'both',history:S.hist,candles:true,generatedAt:d.generated_at,now,states:[S.present]});
+  S.chart=new Chart(e,{flow:true,title:'BTC/USD',spot,unit:'USD',decimals:0,layers:L,mode:'both',history:S.hist,candles:true,generatedAt:d.generated_at,now,states:[S.present]});
   renderTouch(d,spot);e.querySelector('.panel-head').appendChild(scrubber());renderChanges();renderStats()}
 function snapLabel(g){return`${g.slice(5,7)}/${g.slice(8,10)} ${g.slice(11,16)}`}
 function scrubber(){// ★시점 슬라이더: 왼쪽 = 가장 오래된 스냅샷, 오른쪽 끝 = 현재. 수집할 때마다 남긴 스냅샷(intraday)을 차례로 지나간다. ▶ 는 자동 재생.
@@ -245,12 +297,36 @@ function renderVault(d){const $=id=>document.getElementById(id),m=vaultModel(d),
   const dt=t=>new Date(t).toISOString().slice(0,10);$('vault-date').textContent=`실시간 · ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC`;$('vault-chart').setAttribute('aria-label',`누적 손익 ${dt(t0)}~${dt(t1)}, ${signed(m.pnl)}`)}
 async function refreshVault(){const el=document.getElementById('vault-date');if(!el)return;const ac=typeof AbortController!=='undefined'?new AbortController():null,tm=setTimeout(()=>ac&&ac.abort(),10000);
   try{const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'vaultDetails',vaultAddress:VAULT}),signal:ac?ac.signal:undefined});if(!r.ok)throw Error('api');renderVault(await r.json())}catch(_){el.textContent='실시간 값을 못 불러왔습니다 · 하이퍼리퀴드에서 확인하세요'}finally{clearTimeout(tm)}}
+// ---------- v6 실시간 자료: Deribit 옵션(1분)·바이낸스 1시간봉 매물대·선물 OI(10분). 실패하면 마지막 성공값과 그 시각을 그대로 둔다 ----------
+async function getJSON(u,ms=12000){const ac=typeof AbortController!=='undefined'?new AbortController():null,tm=setTimeout(()=>ac&&ac.abort(),ms);try{const r=await fetch(u,{signal:ac?ac.signal:undefined});if(!r.ok)throw Error(r.status);return await r.json()}finally{clearTimeout(tm)}}
+let deskGen=0;
+async function loadDesk(){const g=++deskGen;try{const j=await getJSON('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option');if(g!==deskGen)return;const rows=(j&&j.result)||[],sp=(rows.find(r=>finite(+r.estimated_delivery_price))||{}).estimated_delivery_price,d=optionDesk(rows,Date.now(),+sp);if(!d)throw Error('empty');S.desk=d;S.deskErr=null}catch(e){if(g!==deskGen)return;S.deskErr=String(e&&e.message||e)}renderDesk();if(S.chart)S.chart.requestDraw()}
+async function loadFlow(){try{const k=await getJSON('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=1000'),lo=Math.min(...k.map(x=>+x[3])),hi=Math.max(...k.map(x=>+x[2])),N=64,w=(hi-lo)/N,bins=Array.from({length:N},(_,i)=>({lo:lo+i*w,hi:lo+(i+1)*w,v:0}));for(const x of k){const tp=(+x[2]+ +x[3]+ +x[4])/3,i=Math.min(N-1,Math.max(0,Math.floor((tp-lo)/w)));bins[i].v+=+x[5]}S.vp={bins,days:Math.round(k.length/24)}}catch(_){}
+  try{const o=await getJSON('https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=1d&limit=60');S.oi=o.map(x=>[+x.timestamp,+x.sumOpenInterestValue]).filter(p=>finite(p[0])&&finite(p[1]))}catch(_){}
+  if(S.chart)S.chart.requestDraw()}
+function renderDesk(){const el=document.getElementById('desk');if(!el)return;const d=S.desk;if(!d){el.innerHTML=`<div class="desk-head"><h2>BTC 옵션</h2><span>Deribit</span></div><p class="muted">${S.deskErr?'옵션 자료를 못 불러왔습니다. 잠시 뒤 다시 시도합니다.':'옵션 자료를 불러오는 중…'}</p>`;return}
+  const u=v=>finite(v)?'$'+fmtFull(v,0):'—',M=v=>finite(v)?(v>=0?'+':'−')+'$'+(Math.abs(v)/1e6).toFixed(1)+'M':'—',pc=v=>finite(v)?(v*100).toFixed(1)+'%':'—',dt=t=>{const x=new Date(t);return`${x.getUTCMonth()+1}/${x.getUTCDate()}`},hm=new Date(d.now).toISOString().slice(11,16);
+  const m24=d.move24,m7=d.move7d,f=d.flips.slice().sort((a,b)=>Math.abs(a.S-d.spot)-Math.abs(b.S-d.spot)),bt=d.buckets.reduce((s,b)=>s+b.g,0)||1,cmax=Math.max(...d.chain.rows.map(r=>Math.max(r.c,r.p)))||1;
+  el.innerHTML=`<div class="desk-head"><h2>BTC 옵션</h2><span>Deribit · ${hm} UTC${S.deskErr?' · <b class="stale">갱신 실패, 이전 값</b>':''}</span></div>
+  <div class="desk-move"><span class="k">24시간 기대 변동폭</span><strong class="num">${m24?'±'+u(m24.usd):'—'}</strong><span class="num sub">${m24?`±${(m24.usd/d.spot*100).toFixed(1)}% · ATM IV ${pc(m24.iv)}`:'감싸는 만기 없음'}</span>
+  <p class="desk-note">7일 ${m7?`±${u(m7.usd)} (±${(m7.usd/d.spot*100).toFixed(1)}%)`:'—'} · 가장 가까운 만기 ${d.near?`${dt(d.near.exp)} 08:00까지 ${d.near.hours.toFixed(0)}시간 ±${u(d.near.usd)}`:'—'}. ATM IV 로 잰 1σ 근사폭이다.</p></div>
+  <div class="desk-grid">
+    <div><span class="k">감마 최대 행사가</span><strong class="num">${u(d.top&&d.top.k)}</strong><span class="sub">콜 벽 ${u(d.callWall&&d.callWall.k)} · 풋 벽 ${u(d.putWall&&d.putWall.k)}</span></div>
+    <div><span class="k">풋/콜 수량비</span><strong class="num">${finite(d.pcOI)?d.pcOI.toFixed(2):'—'}</strong><span class="sub">전 만기 OI · 24시간 거래 ${finite(d.pcVol)?d.pcVol.toFixed(2):'—'}</span></div>
+    <div><span class="k">25델타 RR</span><strong class="num">${finite(d.rr.v)?(d.rr.v>=0?'+':'−')+Math.abs(d.rr.v).toFixed(1)+'%p':'—'}</strong><span class="sub">${dt(d.rr.exp)} 만기 · ${d.rr.days.toFixed(0)}일 · ${finite(d.rr.v)?(d.rr.v<0?'풋이 더 비쌈':'콜이 더 비쌈'):'계산 불가'}</span></div>
+    <div><span class="k">가정 감마 지표</span><strong class="num">${M(d.gexNet)}</strong><span class="sub">콜+/풋− 가정 · 가격 1%당</span></div>
+    <div><span class="k">가정 플립</span><strong class="num">${f.length?u(Math.round(f[0].S/100)*100):'없음'}</strong><span class="sub">${f.length?`현물 ±30% 안 ${f.length}곳`:'현물 ±30% 안 부호 전환 없음'}</span></div>
+    <div><span class="k">맥스 페인</span><strong class="num">${d.maxPain.lo===d.maxPain.hi?u(d.maxPain.lo):u(d.maxPain.lo)+'–'+fmtFull(d.maxPain.hi,0)}</strong><span class="sub">${dt(d.maxPain.exp)} 만기 USD 지급 최소 · OI ${fmt(d.maxPain.oi,0)} BTC</span></div>
+  </div>
+  <div class="desk-bk"><span class="k">만기 구간별 감마 비중</span>${d.buckets.map(b=>`<div class="bk"><span>${b.b>1e8?`${b.a}일+`:`${b.a}~${b.b}일`}</span><i style="width:${(b.g/bt*100).toFixed(1)}%"></i><b class="num">${(b.g/bt*100).toFixed(0)}%</b></div>`).join('')}</div>
+  <div class="chain"><div class="chain-h"><span>콜 OI</span><span>${dt(d.chain.exp)} 만기 행사가</span><span>풋 OI</span></div>${d.chain.rows.map(r=>`<div class="cr${Math.abs(r.K-d.spot)<=Math.abs(d.chain.rows.reduce((a,b)=>Math.abs(b.K-d.spot)<Math.abs(a.K-d.spot)?b:a).K-d.spot)?' atm':''}"><span class="cb"><i style="width:${(r.c/cmax*100).toFixed(1)}%"></i><b class="num">${fmt(r.c,0)}</b></span><span class="ck num">${fmtFull(r.K,0)}</span><span class="pb"><i style="width:${(r.p/cmax*100).toFixed(1)}%"></i><b class="num">${fmt(r.p,0)}</b></span></div>`).join('')}</div>
+  <p class="desk-note">공개 미결제약정으로는 누가 롱인지 알 수 없어 콜+/풋− 부호와 플립은 가정이다. 감마는 Black-76·마크 IV, 인버스 옵션이라 S·F 로 환산. 차트 오른쪽 막대 = 행사가별 감마 가중 OI(초록 콜·빨강 풋), 왼쪽 회색 = 바이낸스 1시간봉 거래량 매물대.</p>`}
 async function boot(){try{const d=await(await fetch(DATA_URL+'?t='+Date.now())).json(),now=Date.now(),ag=document.querySelector('#data-age');S.latest=d;
     if(ag){const m=Math.max(0,Math.round((now-Date.parse(d.generated_at))/60000));ag.textContent=m<120?`데이터 ${m}분 전`:`데이터 ${Math.round(m/60)}시간 전`;if(m>360)ag.classList.add('warn')}
     loadPalette();await Promise.race([document.fonts?document.fonts.ready:null,new Promise(r=>setTimeout(r,1000))]);
     S.hist=await candles();
     try{const[ix,sm]=await Promise.all([fetch(HIST+'index.json?t='+Date.now()),fetch(HIST+'summary.json?t='+Date.now())]);if(ix.ok)S.index=(await ix.json()).daily||[];if(sm.ok)S.summary=await sm.json()}catch(err){console.warn('history',err)}
-    renderMain();renderSmall(d,now)
+    renderMain();renderSmall(d,now);loadDesk();loadFlow();setInterval(loadDesk,60e3);setInterval(loadFlow,10*60e3)
   }catch(e){console.error(e);const el=document.querySelector('#btc-panel');if(el)el.innerHTML='<p class="muted">데이터를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</p>'}}
 if(typeof document!=='undefined'){boot();refreshVault()}
-if(typeof module!=='undefined')module.exports={poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};
+if(typeof module!=='undefined')module.exports={optionDesk,parseOpt,bsGamma,bsDelta,gammaFlips,maxPain,atmIV,fixedMove,rr25,poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};

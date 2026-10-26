@@ -29,3 +29,12 @@ console.log('v5 unified/path ok ('+k+' assertions)')}
 // 선형 풀: 두 봉우리 사이(100~110)는 확률 0, 가운데 누적확률 50%
 if(Math.abs(gridCdf(o,105)-.5)>.011||Math.abs(gridCdf(o,100)-.5)>1e-9||Math.abs(gridCdf(o,95)-.25)>1e-9)throw new Error('pool cdf');poolGrid([a,b],[3,1],o);if(Math.abs(gridCdf(o,100)-.75)>1e-9)throw new Error('pool weights');console.log('linear pool ok (4 assertions)')}
 {const {mkNoise}=require('../public/app.js'),a=mkNoise('x'),D=864e5,T=Date.parse('2026-10-01T00:00:00Z'),ds=Array.from({length:60},(_,i)=>T+i*D),v=()=>ds.map((t,i)=>i?a.at(t)-a.at(ds[i-1]):0),cor=(x,y)=>{let p=0,q=0,r=0;for(let i=1;i<x.length;i++){p+=x[i]*y[i];q+=x[i]*x[i];r+=y[i]*y[i]}return p/Math.sqrt(q*r)};a.set(T);const s0=v();a.set(T+60e3);const s1=v();a.set(T+D);const s2=v();a.set(T+6*D);const s3=v();const c1=cor(s0,s1),c2=cor(s0,s2),c3=cor(s0,s3);if(!(c1>.999&&c2>.3&&c2<.95&&Math.abs(c3)<.5))throw new Error('noise evolve '+[c1,c2,c3]);console.log('noise evolves per day (corr 1min/1d/6d:',c1.toFixed(3),c2.toFixed(2),c3.toFixed(2)+')')}
+{const X=require('../public/app.js'),D=864e5,now=Date.UTC(2026,9,27,0),A=(c,m)=>{if(!c)throw new Error(m)};
+// 합성 체인: 11/27 만기, F=80000, 행사가 60k~100k, IV 50% 평평, 콜·풋 OI 같음
+const rows=[];for(let K=60000;K<=100000;K+=2000)for(const cp of['C','P'])rows.push({instrument_name:`BTC-27NOV26-${K}-${cp}`,mark_iv:50,underlying_price:80000,open_interest:cp==='C'?100:100,volume:1});
+rows.push({instrument_name:'BTC-30OCT26-80000-C',mark_iv:50,underlying_price:80000,open_interest:1,volume:0},{instrument_name:'BTC-30OCT26-80000-P',mark_iv:50,underlying_price:80000,open_interest:1,volume:0});
+const d=X.optionDesk(rows,now,80000);A(d&&d.n===rows.length,'parsed all');A(Math.abs(d.pcOI-1)<1e-9,'P/C 1');
+A(Math.abs(d.rr.v)<1e-6,'flat smile -> RR 0');A(d.maxPain.lo<=80000&&d.maxPain.hi>=80000,'symmetric max pain at F: '+JSON.stringify(d.maxPain));
+const T=(Date.UTC(2026,10,27,8)-now)/(365*D);A(Math.abs(d.move7d.iv-.5)<1e-9,'7d iv = flat 50%');A(Math.abs(d.move7d.usd-80000*.5*Math.sqrt(7/365))<1,'7d move');
+A(d.callWall.k>80000&&d.putWall.k<80000,'walls on correct sides');A(X.parseOpt({instrument_name:'BTC-27NOV26-X-C'},now)===null,'bad row dropped');
+console.log('option desk ok (9 assertions)')}

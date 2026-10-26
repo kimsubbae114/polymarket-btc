@@ -84,6 +84,22 @@ canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
 .tip{position:absolute;display:none;background:var(--color-paper);border:1px solid var(--color-rule);border-radius:var(--radius);padding:var(--space-2) var(--space-3);font-size:var(--text-xs);line-height:1.55;pointer-events:none;max-width:240px}
 .muted{color:var(--color-ink-2)}.small-note{font-size:var(--text-xs);margin:var(--space-2) 0 0;line-height:1.5}
 
+/* 옵션 데스크(옆 패널) */
+.work{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:var(--space-3);align-items:start}
+.chart-wrap.flow{height:570px}
+.desk{padding:var(--space-4);font-size:var(--text-sm)}
+.desk-head{display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-3)}.desk-head h2{margin:0;font-size:var(--text-md);font-weight:600}.desk-head span{font-size:var(--text-xs);color:var(--color-ink-3)}.stale{color:var(--color-accent);font-weight:500}
+.desk .k{display:block;font-size:var(--text-xs);color:var(--color-ink-2)}.desk strong{display:block;font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600;line-height:1.25}.desk .sub{display:block;font-size:11px;color:var(--color-ink-3);line-height:1.4}
+.desk-move strong{font-size:2.1rem;letter-spacing:-.02em;margin:2px 0}
+.desk-note{font-size:11px;color:var(--color-ink-3);line-height:1.5;margin:var(--space-2) 0 0}
+.desk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3) var(--space-4);margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-rule)}.desk-grid strong{font-size:var(--text-lg)}
+.desk-bk{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-rule)}.bk{display:grid;grid-template-columns:56px minmax(0,1fr) 34px;gap:var(--space-2);align-items:center;font-size:11px;height:18px;color:var(--color-ink-2)}.bk i{display:block;height:5px;background:var(--color-accent);border-radius:1px}.bk b{text-align:right;font-weight:500}
+.chain{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-rule);font-size:11px}
+.chain-h{display:grid;grid-template-columns:minmax(0,1fr) 72px minmax(0,1fr);color:var(--color-ink-2);margin-bottom:var(--space-1)}.chain-h span:nth-child(2){text-align:center}.chain-h span:last-child{text-align:right}
+.cr{display:grid;grid-template-columns:minmax(0,1fr) 72px minmax(0,1fr);align-items:center;height:19px}.cr.atm{background:var(--color-paper-3);border-radius:2px}.ck{text-align:center;color:var(--color-ink)}
+.cb,.pb{position:relative;height:13px;display:flex;align-items:center}.cb{justify-content:flex-end}.cb i,.pb i{position:absolute;top:3px;height:7px;border-radius:1px;opacity:.45}.cb i{right:0;background:var(--color-up)}.pb i{left:0;background:var(--color-down)}.cb b,.pb b{position:relative;font-weight:400;color:var(--color-ink-2);padding:0 4px}
+@media (max-width:1100px){.work{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.chart-wrap.flow{height:460px}}
 /* 도달 확률 표 */
 .touch-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-2) var(--space-5);margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-rule)}
 .touchbox h3{font-size:var(--text-xs);color:var(--color-ink-2);margin:0 0 var(--space-1);font-weight:600}
@@ -93,7 +109,7 @@ canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
 .touch-divider{border-top:1px dashed var(--color-ink-3);color:var(--color-accent);font:500 11px var(--font-mono);margin:var(--space-1) 0 3px;padding-top:3px;height:19px}
 
 /* 예측 변화 */
-.change{margin-top:var(--space-3)}.change:empty{display:none}
+.change,.touch-panel{margin-top:var(--space-3)}.touch-panel .touch-grid{margin-top:0;padding-top:0;border-top:0}.touch-panel:empty{display:none}.change:empty{display:none}
 .hm-wrap{overflow-x:auto}.hm{border-collapse:collapse;font-size:11px}
 .hm th{color:var(--color-ink-2);font-weight:400;text-align:left;padding:2px var(--space-2) 2px 2px;white-space:nowrap;font-family:var(--font-body)}.hm thead th{text-align:center;padding:2px 3px;font-family:var(--font-mono)}
 .hm td.hm-c{width:22px;height:18px;border:1px solid var(--color-paper-2);cursor:pointer}.hm tbody tr{cursor:pointer}.hm tr.on th{color:var(--color-accent)}
@@ -140,7 +156,8 @@ footer{margin-top:var(--space-7);padding-block:var(--space-5) var(--space-6);bor
   <div id="stat-band"><dt>연말 예상 범위</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
   <div id="stat-dod"><dt>어제 대비 연말 중앙값</dt><dd><strong>—</strong><span class="sub">불러오는 중</span></dd></div>
 </dl>
-<section id="btc-panel" class="panel" aria-label="비트코인 예상 가격 차트"></section>
+<div class="work"><section id="btc-panel" class="panel" aria-label="비트코인 예상 가격 차트"></section><aside id="desk" class="panel desk" aria-label="BTC 옵션 데스크"><p class="muted">옵션 자료를 불러오는 중…</p></aside></div>
+<section id="touch-panel" class="panel touch-panel" aria-label="도달 확률"></section>
 <section id="change-panel" class="panel change" aria-label="예측 변화"></section>
 <section id="small-grid" class="small-grid" aria-label="금리·환율"></section>
 </main>
