@@ -20,8 +20,9 @@ for h in [7,30,60,90,180]:
         rs=[r for r in R if r['s']=='A' and r['h']==h and r['b']==b]
         if not rs: continue
         cost=lambda r:r['mid']+r['hs']+r['fee']
-        gross=[(r['pay']-r['mid'])/r['mid'] for r in rs if r['mid']>0];net=[(r['pay']-cost(r))/cost(r) for r in rs if r['mid']>0]
-        no=nonover([r for r in rs if r['mid']>0],h);nn=[(r['pay']-cost(r))/cost(r) for r in no]
+        ok=[r for r in rs if r['mid']>0];g_ret=sum(r['pay'] for r in ok)/sum(r['mid'] for r in ok)-1;n_ret=sum(r['pay'] for r in ok)/sum(cost(r) for r in ok)-1
+        gross=[g_ret];net=[n_ret]  # ★합계 기준(총 받은 돈/총 낸 돈 −1) — 진입가 ≈0 인 몇 건이 비율 평균을 끌어올리는 걸 막는다
+        no=nonover(ok,h);nn=[(r['pay']-cost(r))/r['S'] for r in no]  # t값은 현물 대비 손익으로
         imp=st.mean(r['implied'] for r in rs);hit=st.mean(r['hit'] for r in rs);cr=st.median((r['hs']+r['fee'])/r['mid'] for r in rs if r['mid']>0)
         row=dict(h=h,b=b,n=len(rs),n_nonover=len(no),implied=imp,realized=hit,cost_ratio=cr,ret_gross=st.mean(gross),ret_net=st.mean(net),ret_net_nonover=st.mean(nn) if nn else None,t_nonover=tstat(nn))
         summary['A'].append(row)

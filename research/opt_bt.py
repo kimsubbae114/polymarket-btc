@@ -11,8 +11,8 @@
        → 폴리마켓 '현재가가 든 구간 YES 매수'와 같은 모양(손실 한정).
   전략 B 「양끝을 판다」= 숏 스트랭글 콜 K+ ≈ S(1+b), 풋 K− ≈ S(1−b). (손실 무한 — 참고용)
   밴드 b: 5%, 10%, 20%.
-  가격: 진입 ±24시간 안 체결들의 mark_price 중앙값(BTC) × 그때 지수 → 달러 중간값. 체결 없는 다리가 있으면 그 진입은 결측.
-  비용(실측): 같은 체결들에서 |체결가 − mark| 중앙값 = 당시 실제 반스프레드(테이커가 낸 값) + 수수료
+  가격: 진입 ±24시간 안 체결들의 IV 중앙값으로, 진입 시각 현물·남은 기간에 Black-76(r=0) 재계산(다리마다 체결 시각이 달라 생기는 뺄셈 오차 제거 — 2026-10-27 수정). 체결 없는 다리가 있으면 그 진입은 결측.
+  비용(실측): 같은 체결들에서 |체결가 − mark|/mark 중앙값 × 재계산 가격 = 당시 실제 반스프레드(테이커가 낸 값) + 수수료
        (거래 0.03%×지수, 옵션값의 12.5% 상한) + 정산 수수료 0.015%(내가격 다리, 12.5% 상한).
   정산: Deribit btc_usd 정산가(만기일).
   판정 지표: 기대값(비용 후, 1세트당 $, 비용 대비 %), 시장 내재 확률 vs 실제 적중률, 겹치지 않는 표본(간격 ≥ 기간)으로 t값.
@@ -63,9 +63,15 @@ def quote(inst,t):
     tr=(j or {}).get('result',{}).get('trades',[])
     if not tr: return None
     mk=[x['mark_price'] for x in tr if x.get('mark_price') is not None];ix=[x['index_price'] for x in tr if x.get('index_price')]
-    hs=[abs(x['price']-x['mark_price']) for x in tr if x.get('mark_price') is not None]
-    if not mk or not ix: return None
-    return st.median(mk),st.median(ix),st.median(hs),len(tr)
+    hs=[abs(x['price']-x['mark_price'])/x['mark_price'] for x in tr if x.get('mark_price')]
+    iv=[x['iv']/100 for x in tr if x.get('iv')]
+    if not mk or not ix or not iv: return None
+    return st.median(mk),st.median(ix),st.median(hs),len(tr),st.median(iv)
+def ncdf(x): return .5*(1+math.erf(x/math.sqrt(2)))
+def bs(S,K,T,v,cp):
+    if T<=0 or v<=0: return max(S-K,0) if cp=='C' else max(K-S,0)
+    d1=(math.log(S/K)+v*v*T/2)/(v*math.sqrt(T));d2=d1-v*math.sqrt(T)
+    return S*ncdf(d1)-K*ncdf(d2) if cp=='C' else K*ncdf(-d2)-S*ncdf(-d1)
 def fee_trade(opt_usd,S): return min(.0003*S,.125*opt_usd)
 def fee_deliv(payoff_usd,S): return min(.00015*S,.125*payoff_usd) if payoff_usd>0 else 0
 def nearest(ks,x): return min(ks,key=lambda k:abs(k-x)) if ks else None
@@ -87,8 +93,9 @@ def main():
                     if ws:
                         w=min(ws,key=lambda x:abs(x-b*S));legs=[(K0-w,1),(K0,-2),(K0+w,1)];q=[quote(name(E,k,'C'),tms) for k,_ in legs]
                         if all(q):
-                            ix=st.median([x[1] for x in q]);mid=sum(n*x[0]*x[1] for (k,n),x in zip(legs,q));hs=sum(abs(n)*x[2]*x[1] for (k,n),x in zip(legs,q))
-                            fee=sum(abs(n)*fee_trade(x[0]*x[1],ix) for (k,n),x in zip(legs,q));pay=sum(n*max(ST-k,0) for k,n in legs)
+                            T=days/365;px=[bs(S,k,T,x[4],'C') for (k,n),x in zip(legs,q)];ix=S
+                            mid=sum(n*p for (k,n),p in zip(legs,px));hs=sum(abs(n)*x[2]*p for (k,n),x,p in zip(legs,q,px))
+                            fee=sum(abs(n)*fee_trade(p,S) for (k,n),p in zip(legs,px));pay=sum(n*max(ST-k,0) for k,n in legs)
                             dfee=sum(abs(n)*fee_deliv(max(ST-k,0),ST) for k,n in legs)
                             rows.append({'s':'A','t':tms,'h':h,'days':days,'b':b,'S':S,'ST':ST,'K0':K0,'w':w,'mid':mid,'hs':hs,'fee':fee+dfee,'pay':pay,'implied':mid/w,'hit':pay/w})
                     # B: 숏 스트랭글
@@ -96,7 +103,7 @@ def main():
                     if Kc and Kp:
                         qc=quote(name(E,Kc,'C'),tms);qp=quote(name(E,Kp,'P'),tms)
                         if qc and qp:
-                            ix=(qc[1]+qp[1])/2;prem=qc[0]*qc[1]+qp[0]*qp[1];hs=qc[2]*qc[1]+qp[2]*qp[1];fee=fee_trade(qc[0]*qc[1],ix)+fee_trade(qp[0]*qp[1],ix)
+                            T=days/365;pc=bs(S,Kc,T,qc[4],'C');pp=bs(S,Kp,T,qp[4],'P');prem=pc+pp;hs=qc[2]*pc+qp[2]*pp;fee=fee_trade(pc,S)+fee_trade(pp,S)
                             loss=max(ST-Kc,0)+max(Kp-ST,0);dfee=fee_deliv(max(ST-Kc,0),ST)+fee_deliv(max(Kp-ST,0),ST)
                             rows.append({'s':'B','t':tms,'h':h,'days':days,'b':b,'S':S,'ST':ST,'Kc':Kc,'Kp':Kp,'prem':prem,'hs':hs,'fee':fee+dfee,'loss':loss})
         t+=dt.timedelta(days=7)

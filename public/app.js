@@ -37,6 +37,8 @@ function quantileGrid(bins){const bs=closeBins(bins).filter(x=>finite(x.lo)&&fin
 // 밀도 = 누적분포 기울기를 누적확률 ±5%(DK) 창으로 잰 것 — 두 시장의 구간 경계가 어긋나 생기는 줄무늬를 편다. 창끼리 선형 보간. 0%·100% 밖은 0
 function gridDensity(q,y,k=DK){const n=q.length;if(!(y>=q[0]&&y<=q[n-1]))return 0;const eps=Math.abs(q[n>>1])*1e-6+1e-12;let a=0,b=n-1;while(b-a>1){const m=(a+b)>>1;if(q[m]<=y)a=m;else b=m}const f=(y-q[a])/Math.max(eps,q[b]-q[a]),w=i=>{const lo=Math.max(0,i-k+1),hi=Math.min(n-1,i+k);return(PQ[hi]-PQ[lo])/Math.max(eps,q[hi]-q[lo])};return a+1<n-1?w(a)+(w(a+1)-w(a))*f:w(a)}
 function gridCdf(q,y){const n=q.length;if(y<=q[0])return 0;if(y>=q[n-1])return 1;let a=0,b=n-1;while(b-a>1){const m=(a+b)>>1;if(q[m]<=y)a=m;else b=m}return PQ[a]+(PQ[b]-PQ[a])*(y-q[a])/Math.max(1e-12,q[b]-q[a])}
+// 밀도가 가장 높은 가격 — 화면 빛과 같은 gridDensity 로 400칸 훑기
+function densityPeak(q){const n=q.length,lo=q[1],hi=q[n-2];if(!(hi>lo))return q[n>>1];let bv=-1,by=q[n>>1];for(let i=0;i<=400;i++){const y=lo+(hi-lo)*i/400,v=gridDensity(q,y);if(v>bv){bv=v;by=y}}return by}
 function gridMode(q){let bi=1,bw=Infinity;for(let i=1;i+4<q.length-1;i++){const w=q[i+4]-q[i];if(w<bw){bw=w;bi=i}}return(q[bi]+q[bi+4])/2}
 function srcNodes(list){return(list||[]).map(h=>({t:Date.parse(h.t),touch:h.kind==='touch-approx',q:quantileGrid(h.bins),h})).filter(n=>finite(n.t)&&finite(n.q[0])).sort((a,b)=>a.t-b.t)}
 // 한 출처의 t 시점 분위수를 out 에 쓰고 가중치를 돌려준다. 첫 만기 전은 현물(sq)에서, 만기 사이는 이웃 두 만기에서 보간
@@ -158,7 +160,7 @@ class Chart{
   range(){// ★세로 범위는 모든 시점을 합쳐 한 번만 — 재생·슬라이더 중에 축이 흔들리지 않게. 잠그면(yLock) 그 값 그대로.
     if(this.yLock){this.lo=this.yLock.lo;this.hi=this.yLock.hi;return}
     const key=[this.view.t0,this.view.t1,this.states.length,this.o.mode].join();if(key!==this.rangeKey){const v=[],{t0,t1}=this.view,q=new Float64Array(NQ);this.hist.forEach(h=>{if(h.t>=t0&&h.t<=t1)v.push(...(this.o.candles?[h.h,h.l]:[h.v]))});
-      for(const st of this.states){if(st.now>=t0&&st.now<=t1)v.push(st.spot);for(const d of st.dots){if(d.t<t0||d.t>t1)continue;unifiedAt(st,d.t,q,this.tmp);if(d.t-st.now<=45*DAY)v.push(q[10],q[90]);else v.push(q[50])}}
+      for(const st of this.states){if(st.now>=t0&&st.now<=t1)v.push(st.spot);for(const d of st.dots){if(d.t<t0||d.t>t1)continue;unifiedAt(st,d.t,q,this.tmp);if(d.t-st.now<=45*DAY)v.push(q[10],q[90]);else v.push(q[50]);v.push(densityPeak(q))}}
       const a=v.filter(finite);if(!a.length)this.auto={lo:0,hi:1};else{const lo=Math.min(...a),hi=Math.max(...a),p=(hi-lo)*.06||Math.abs(hi)*.01||1;this.auto={lo:lo-p,hi:hi+p}}this.rangeKey=key}
     this.lo=this.auto.lo;this.hi=this.auto.hi}
   future(){// 지금 시점(섞인 것)의 예측 캔들 + 흐린 10갈래. pos·모드가 바뀔 때만 다시 계산
@@ -194,12 +196,13 @@ class Chart{
   futureDraw(){// 예측 캔들은 시점과 상관없이 같은 모양(채운 캔들). 흐린 10갈래도 같은 잡음이라 함께 출렁인다
     const c=this.ctx,{t0,t1}=this.view,{n0,sp}=this.mix();c.strokeStyle=rgba(C.inkRGB,.13);c.lineWidth=1;this.pathFut.forEach(p=>{if(!p.length)return;c.beginPath();c.moveTo(this.x(n0),this.y(sp));p.forEach(k=>c.lineTo(this.x(k.t),this.y(k.c)));c.stroke()});
     this.fut.forEach(k=>{if(k.t>=t0-DAY&&k.t<=t1+DAY)this.candle(this.x(k.t),k)})}
-  dotY(st,d){if(st.src.length===1&&st.src[0].ns.some(n=>n.t===d.t)){const m=modeBin(d.h.bins);return{v:(m.lo+m.hi)/2,m}}const q=unifiedAt(st,d.t,new Float64Array(NQ),this.tmp);return{v:gridMode(q)}}
+  dotY(st,d){// ★점 = 그려진 빛(밀도)이 가장 진한 곳. 단일 출처면 그 점이 든 구간의 확률을 라벨로(2026-10-29 민수님: 구간 가운데 점 금지)
+    const q=unifiedAt(st,d.t,new Float64Array(NQ),this.tmp),v=densityPeak(q);if(st.src.length===1&&st.src[0].ns.some(n=>n.t===d.t)){const m=closeBins(d.h.bins).find(b=>v>=b.lo&&v<=b.hi);if(m)return{v,m}}return{v}}
   marks(){// 만기마다 통합 분포의 최빈 점. 시점 사이엔 같은 날짜 점이 미끄러지고, 한쪽에만 있는 점은 사라지거나 나타난다.
     const c=this.ctx,{A,B,w}=this.cur(),mA=new Map(A.dots.map(d=>[d.k,d])),mB=new Map(B.dots.map(d=>[d.k,d])),pts=[];
     new Set([...mA.keys(),...mB.keys()]).forEach(k=>{const a=mA.get(k),b=mB.get(k),ya=a&&this.dotY(A,a),yb=b&&this.dotY(B,b),d=b||a,info=(w<.5?ya:yb)||ya||yb;pts.push({d,x:this.x(a&&b?lerp(a.t,b.t,w):d.t),y:this.y(a&&b?lerp(ya.v,yb.v,w):(ya||yb).v),al:a&&b?1:a?1-w:w,info})});pts.sort((p,q)=>p.x-q.x);
     if(this.o.small&&this.o.connect!==false){c.setLineDash([2,3]);c.strokeStyle=rgba(C.acc,.6);c.beginPath();c.moveTo(this.nowX(),this.y(this.mix().sp));pts.forEach(p=>c.lineTo(p.x,p.y));c.stroke();c.setLineDash([])}
-    const col=`rgb(${this.rgb().join()})`,lab=candleLabels(pts.map(p=>p.x),80);pts.forEach((p,i)=>{c.save();c.globalAlpha=p.al;c.fillStyle=col;c.beginPath();c.arc(p.x,p.y,3,0,Math.PI*2);c.fill();c.strokeStyle=C.paper;c.lineWidth=1;c.stroke();if(lab[i]&&p.x>this.L&&p.x<this.L+this.pw){const m=p.info.m,u=this.o.unit,dd=this.o.decimals;c.fillStyle=C.text;c.font='10px '+C.sans;c.textAlign='center';c.fillText(m?`${this.o.step?fmt((m.lo+m.hi)/2,dd,u):`${fmt(m.lo,dd,u)}–${fmt(m.hi,dd,u)}`} · ${(m.p*100).toFixed(0)}%`:`최빈 ${fmt(p.info.v,dd,u)}`,p.x,Math.max(this.T+10,p.y-9))}c.restore()})}
+    const col=`rgb(${this.rgb().join()})`,lab=candleLabels(pts.map(p=>p.x),80);pts.forEach((p,i)=>{c.save();c.globalAlpha=p.al;c.fillStyle=col;c.beginPath();c.arc(p.x,p.y,3,0,Math.PI*2);c.fill();c.strokeStyle=C.paper;c.lineWidth=1;c.stroke();if(lab[i]&&p.x>this.L&&p.x<this.L+this.pw){const m=p.info.m,u=this.o.unit,dd=this.o.decimals;c.fillStyle=C.text;c.font='10px '+C.sans;c.textAlign='center';const s=m?`${this.o.step?fmt((m.lo+m.hi)/2,dd,u):`${fmt(m.lo,dd,u)}–${fmt(m.hi,dd,u)}`} · ${(m.p*100).toFixed(0)}%`:`최빈 ${fmt(p.info.v,dd,u)}`,hw=c.measureText(s).width/2+3;c.fillText(s,Math.min(this.L+this.pw-hw,Math.max(this.L+hw,p.x)),p.y-9<this.T+10?p.y+16:p.y-9)}c.restore()})}
   axes(){const c=this.ctx,{A,B,w}=this.cur(),st=this.near();c.fillStyle=C.paper;c.fillRect(this.L+this.pw,0,this.w-this.L-this.pw,this.h);c.fillRect(0,this.T+this.ph,this.w,this.h-this.T-this.ph);c.strokeStyle=C.axis;c.beginPath();c.moveTo(this.L+this.pw+.5,this.T);c.lineTo(this.L+this.pw+.5,this.T+this.ph);c.moveTo(this.L,this.T+this.ph+.5);c.lineTo(this.L+this.pw,this.T+this.ph+.5);c.stroke();
     c.fillStyle=this.yLock?C.past:C.muted;c.font='11px '+C.mono;c.textAlign='left';for(let i=0;i<=5;i++){const v=this.hi-(this.hi-this.lo)*i/5;c.fillText(fmt(v,this.o.decimals,this.o.unit),this.L+this.pw+6,this.T+this.ph*i/5+(i===5?-3:4))}c.fillStyle=C.muted;
     const xn=this.nowX();c.textAlign='center';for(const t of this.ticks()){if(Math.abs(this.x(t)-xn)<34)continue;const d=new Date(t);c.fillText(d.getUTCDate()===1||(this.view.t1-this.view.t0)>150*DAY?`${d.getUTCMonth()+1}월${d.getUTCDate()===1?'':' '+d.getUTCDate()+'일'}`:dateLabel(t),this.x(t),this.T+this.ph+this.FH+14)}
@@ -330,4 +333,4 @@ async function boot(){try{const d=await(await fetch(DATA_URL+'?t='+Date.now())).
     renderMain();renderSmall(d,now);loadDesk();loadFlow();setInterval(loadDesk,60e3);setInterval(loadFlow,10*60e3)
   }catch(e){console.error(e);const el=document.querySelector('#btc-panel');if(el)el.innerHTML='<p class="muted">데이터를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</p>'}}
 if(typeof document!=='undefined'){boot();refreshVault()}
-if(typeof module!=='undefined')module.exports={optionDesk,parseOpt,bsGamma,bsDelta,gammaFlips,maxPain,atmIV,fixedMove,rr25,poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};
+if(typeof module!=='undefined')module.exports={densityPeak,optionDesk,parseOpt,bsGamma,bsDelta,gammaFlips,maxPain,atmIV,fixedMove,rr25,poolGrid,quantileGrid,gridDensity,gridCdf,gridMode,srcNodes,srcAt,unifiedAt,mkNoise,dayGrid,futurePath,PQ,mergeLayers,closeBins,densityAt,cdfAt,quantile,interpolateDensity,modeBin,selectHorizons,logTimeRatio,logTimeX,chartRange,columnAlphas,spacedLabels,candleLabels,selectTouchTables,binSum,bandAt,realizedVol};

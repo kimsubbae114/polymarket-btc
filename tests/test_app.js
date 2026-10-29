@@ -38,3 +38,7 @@ A(Math.abs(d.rr.v)<1e-6,'flat smile -> RR 0');A(d.maxPain.lo<=80000&&d.maxPain.h
 const T=(Date.UTC(2026,10,27,8)-now)/(365*D);A(Math.abs(d.move7d.iv-.5)<1e-9,'7d iv = flat 50%');A(Math.abs(d.move7d.usd-80000*.5*Math.sqrt(7/365))<1,'7d move');
 A(d.callWall.k>80000&&d.putWall.k<80000,'walls on correct sides');A(X.parseOpt({instrument_name:'BTC-27NOV26-X-C'},now)===null,'bad row dropped');
 console.log('option desk ok (9 assertions)')}
+{const {densityPeak,quantileGrid}=require('../public/app.js');
+// 원화 사례: 넓은 구간(1340~1600) 45% vs 좁은 구간(1300~1340) 25% → 빛(밀도)은 좁은 구간이 진하다 → 점도 거기
+const q=quantileGrid([{lo:1200,hi:1300,p:.19},{lo:1300,hi:1340,p:.25},{lo:1340,hi:1600,p:.45},{lo:1600,hi:1700,p:.11}]),v=densityPeak(q);
+if(!(v>=1290&&v<=1350))throw new Error('peak should sit in dense narrow bin: '+v);console.log('density peak ok ('+Math.round(v)+')')}
